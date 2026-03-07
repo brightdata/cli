@@ -1,0 +1,61 @@
+{
+    "name": "brightdata-cli",
+    "version": "0.1.0",
+    "description": "Command-line interface for Bright Data. Scrape, search, extract structured data, and automate browsers directly from your terminal.",
+    "main": "dist/index.js",
+    "bin": {
+        "brightdata": "dist/index.js",
+        "bdata": "dist/index.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch",
+        "start": "node dist/index.js",
+        "clean": "rm -rf dist",
+        "prepublishOnly": "pnpm run build",
+        "type-check": "tsc --noEmit",
+        "test:watch": "vitest",
+        "test": "vitest run",
+        "publish-beta": "npm publish --tag beta",
+        "publish-prod": "npm publish --access public"
+    },
+    "keywords": [
+        "brightdata",
+        "bright-data",
+        "cli",
+        "web-scraping",
+        "scraper",
+        "serp",
+        "data-extraction",
+        "proxy",
+        "unlocker",
+        "dataset"
+    ],
+    "author": "Bright Data",
+    "license": "ISC",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/brightdata/brightdata-cli.git"
+    },
+    "bugs": {
+        "url": "https://github.com/brightdata/brightdata-cli/issues"
+    },
+    "homepage": "https://brightdata.com",
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "packageManager": "pnpm@10.12.1",
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "typescript": "^5.0.0",
+        "vitest": "^4.0.0"
+    },
+    "dependencies": {
+        "@inquirer/prompts": "^8.2.1",
+        "commander": "^14.0.2"
+    }
+}
