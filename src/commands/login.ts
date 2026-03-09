@@ -1,9 +1,10 @@
 import {Command} from 'commander';
-import {password} from '@inquirer/prompts';
+import {input} from '@inquirer/prompts';
 import {save} from '../utils/credentials';
 import {validate_key, mask_key} from '../utils/auth';
 import {get as get_config, set as set_config} from '../utils/config';
 import {get, post} from '../utils/client';
+import {loopback_flow, device_flow} from '../utils/browser_auth';
 
 const UNLOCKER_ZONE = 'cli_unlocker';
 const BROWSER_ZONE  = 'cli_browser';
@@ -11,6 +12,12 @@ const BROWSER_ZONE  = 'cli_browser';
 type Zone = {
     name: string;
     type: string;
+};
+
+type Login_opts = {
+    apiKey?: string;
+    device?: boolean;
+    customerId?: string;
 };
 
 const ensure_zones = async(api_key: string)=>{
@@ -61,39 +68,72 @@ const ensure_zones = async(api_key: string)=>{
         set_config('default_zone_unlocker', UNLOCKER_ZONE);
 };
 
-const handle_login = async(opts: {apiKey?: string})=>{
-    let api_key = opts.apiKey;
-    if (!api_key)
-    {
-        api_key = await password({
-            message: 'Enter your Bright Data API key:',
-            mask: '*',
-        });
-    }
-    api_key = api_key.trim();
-    if (!api_key)
-    {
-        console.error('Error: API key cannot be empty.');
-        process.exit(1);
-    }
-    console.error('Validating API key...');
-    const valid = await validate_key(api_key);
-    if (!valid)
+const resolve_customer_id = async(
+    cli_customer_id: string|undefined
+): Promise<string>=>{
+    const resolved = cli_customer_id ?? process.env['BRIGHTDATA_CUSTOMER_ID'];
+    if (resolved?.trim())
+        return resolved.trim();
+    if (!process.stdin.isTTY)
     {
         console.error(
-            'Error: Invalid API key. Check your key at '
-            +'https://brightdata.com/cp/setting/users'
+            'Error: Bright Data account ID is required for browser login.\n'
+            +'  Pass --customer-id <hl_...> or set BRIGHTDATA_CUSTOMER_ID.'
         );
         process.exit(1);
     }
+    const prompted = (await input({
+        message: 'Enter your Bright Data account ID (starts with hl_):',
+    })).trim();
+    if (prompted)
+        return prompted;
+    console.error('Error: Bright Data account ID cannot be empty.');
+    process.exit(1);
+};
+
+const handle_login = async(opts: Login_opts)=>{
+    let api_key: string;
+
+    if (opts.apiKey)
+    {
+        api_key = opts.apiKey.trim();
+        if (!api_key)
+        {
+            console.error('Error: API key cannot be empty.');
+            process.exit(1);
+        }
+        console.error('Validating API key...');
+        const valid = await validate_key(api_key);
+        if (!valid)
+        {
+            console.error(
+                'Error: Invalid API key. Check your key at '
+                +'https://brightdata.com/cp/setting/users'
+            );
+            process.exit(1);
+        }
+    }
+    else if (opts.device)
+    {
+        const customer_id = await resolve_customer_id(opts.customerId);
+        api_key = (await device_flow({customer_id})).trim();
+    }
+    else
+    {
+        const customer_id = await resolve_customer_id(opts.customerId);
+        api_key = (await loopback_flow({customer_id})).trim();
+    }
+
     save({api_key});
     console.error(`Logged in successfully. Key: ${mask_key(api_key)}`);
     await ensure_zones(api_key);
 };
 
 const login_command = new Command('login')
-    .description('Authenticate with your Bright Data API key')
-    .option('-k, --api-key <key>', 'API key (skips interactive prompt)')
+    .description('Authenticate with Bright Data (opens browser)')
+    .option('-k, --api-key <key>', 'Use API key directly (skips browser)')
+    .option('-c, --customer-id <id>', 'Bright Data account ID (starts with hl_)')
+    .option('-d, --device', 'Use device flow for SSH/headless environments')
     .action(handle_login);
 
 export {login_command, handle_login};
