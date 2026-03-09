@@ -1,5 +1,6 @@
 import http from 'http';
 import crypto from 'crypto';
+import {SUCCESS_HTML, ERROR_HTML} from './auth_pages';
 
 const BASE = process.env.BD_BASE || 'https://brightdata.com/users';
 const AUTHORIZE_URL = `${BASE}/auth/cli/authorize`;
@@ -45,12 +46,6 @@ type Token_response = {
     error_description?: string;
 } & Json_object;
 
-const SUCCESS_HTML =
-    '<html><body><pre>OK, you may close this tab.</pre></body></html>';
-
-const ERROR_HTML = (error: string)=>
-    `<html><body><pre>ERROR: ${escape_html(error)}</pre></body></html>`;
-
 const sleep = (ms: number)=>new Promise(resolve=>setTimeout(resolve, ms));
 
 const base64url = (buf: Buffer): string=>Buffer.from(buf).toString('base64')
@@ -62,13 +57,6 @@ const random_b64url = (bytes = 32): string=>base64url(crypto.randomBytes(bytes))
 
 const sha256_b64url = (input: string): string=>
     base64url(crypto.createHash('sha256').update(input).digest());
-
-const escape_html = (input: string): string=>input
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 
 const once = <T extends (...args: never[])=>void>(fn: T): T=>{
     let called = false;
