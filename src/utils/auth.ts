@@ -14,7 +14,10 @@ const resolve_key = (cli_val: string|undefined): string|undefined=>{
 const validate_key = async(api_key: string): Promise<boolean>=>{
     try {
         const res = await fetch(`${API_BASE}/zone`, {
-            headers: {'Authorization': `Bearer ${api_key}`},
+            headers: {
+                'Authorization': `Bearer ${api_key}`,
+                'User-Agent': 'brightdata-cli',
+            },
         });
         return res.status != 401 && res.status != 403;
     } catch(e) {

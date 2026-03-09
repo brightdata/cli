@@ -119,7 +119,7 @@ const post_json = async<T extends Json_object>(
 ): Promise<{status: number; json: T|undefined}>=>{
     const res = await fetch(url, {
         method: 'POST',
-        headers: {'content-type': 'application/json'},
+        headers: {'content-type': 'application/json', 'User-Agent': 'brightdata-cli'},
         body: JSON.stringify(body),
         redirect: 'manual',
     });

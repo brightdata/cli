@@ -44,6 +44,7 @@ const request = async<T = unknown>(
     const headers: Record<string, string> = {
         'Authorization': `Bearer ${api_key}`,
         'Content-Type': 'application/json',
+        'User-Agent': 'brightdata-cli',
         ...opts.headers,
     };
     const fetch_opts: RequestInit = {
