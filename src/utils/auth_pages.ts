@@ -268,7 +268,24 @@ export const SUCCESS_HTML: string = PAGE_SHELL(`
       Bright Data CLI is now configured and ready to use.<br />
       Run <code style="font-family:var(--font-mono);color:rgba(255,255,255,0.8)">brightdata --help</code> to get started.
     </p>
+    <p class="hint" style="margin-top:12px">
+      This tab will close automatically in <span id="countdown" style="color:rgba(255,255,255,0.7);font-family:var(--font-mono)">10</span>s
+    </p>
   </div>
+  <script>
+    (function() {
+      var remaining = 10;
+      var el = document.getElementById('countdown');
+      var iv = setInterval(function() {
+        remaining -= 1;
+        if (el) el.textContent = remaining;
+        if (remaining <= 0) {
+          clearInterval(iv);
+          window.close();
+        }
+      }, 1000);
+    })();
+  </script>
 `);
 
 export const ERROR_HTML = (message: string): string => PAGE_SHELL(`
