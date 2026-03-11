@@ -1,5 +1,4 @@
 import {Command} from 'commander';
-import {input} from '@inquirer/prompts';
 import {save} from '../utils/credentials';
 import {validate_key, mask_key} from '../utils/auth';
 import {get as get_config, set as set_config} from '../utils/config';
@@ -70,25 +69,9 @@ const ensure_zones = async(api_key: string)=>{
 
 const resolve_customer_id = async(
     cli_customer_id: string|undefined
-): Promise<string>=>{
+): Promise<string|undefined>=>{
     const resolved = cli_customer_id ?? process.env['BRIGHTDATA_CUSTOMER_ID'];
-    if (resolved?.trim())
-        return resolved.trim();
-    if (!process.stdin.isTTY)
-    {
-        console.error(
-            'Error: Bright Data account ID is required for browser login.\n'
-            +'  Pass --customer-id <hl_...> or set BRIGHTDATA_CUSTOMER_ID.'
-        );
-        process.exit(1);
-    }
-    const prompted = (await input({
-        message: 'Enter your Bright Data account ID (starts with hl_):',
-    })).trim();
-    if (prompted)
-        return prompted;
-    console.error('Error: Bright Data account ID cannot be empty.');
-    process.exit(1);
+    return resolved?.trim() || undefined;
 };
 
 const handle_login = async(opts: Login_opts)=>{
@@ -132,7 +115,7 @@ const handle_login = async(opts: Login_opts)=>{
 const login_command = new Command('login')
     .description('Authenticate with Bright Data (opens browser)')
     .option('-k, --api-key <key>', 'Use API key directly (skips browser)')
-    .option('-c, --customer-id <id>', 'Bright Data account ID (starts with hl_)')
+    .option('-c, --customer-id <id>', 'Optional Bright Data account ID')
     .option('-d, --device', 'Use device flow for SSH/headless environments')
     .action(handle_login);
 

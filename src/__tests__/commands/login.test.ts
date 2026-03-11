@@ -1,7 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(()=>({
-    input: vi.fn(),
     save: vi.fn(),
     validate_key: vi.fn(),
     mask_key: vi.fn((key: string)=>`masked:${key}`),
@@ -11,10 +10,6 @@ const mocks = vi.hoisted(()=>({
     client_post: vi.fn(),
     loopback_flow: vi.fn(),
     device_flow: vi.fn(),
-}));
-
-vi.mock('@inquirer/prompts', ()=>({
-    input: mocks.input,
 }));
 
 vi.mock('../../utils/credentials', ()=>({
@@ -45,7 +40,6 @@ import {handle_login} from '../../commands/login';
 
 describe('commands/login', ()=>{
     const original_customer_id = process.env['BRIGHTDATA_CUSTOMER_ID'];
-    const stdin_tty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
 
     beforeEach(()=>{
         vi.clearAllMocks();
@@ -53,8 +47,6 @@ describe('commands/login', ()=>{
             delete process.env['BRIGHTDATA_CUSTOMER_ID'];
         else
             process.env['BRIGHTDATA_CUSTOMER_ID'] = original_customer_id;
-        if (stdin_tty)
-            Object.defineProperty(process.stdin, 'isTTY', stdin_tty);
         mocks.mask_key.mockImplementation((key: string)=>`masked:${key}`);
         mocks.get_config.mockReturnValue(undefined);
         mocks.client_get.mockResolvedValue([
@@ -69,8 +61,6 @@ describe('commands/login', ()=>{
 
     afterEach(()=>{
         vi.restoreAllMocks();
-        if (stdin_tty)
-            Object.defineProperty(process.stdin, 'isTTY', stdin_tty);
         if (original_customer_id === undefined)
             delete process.env['BRIGHTDATA_CUSTOMER_ID'];
         else
@@ -78,10 +68,10 @@ describe('commands/login', ()=>{
     });
 
     it('uses loopback flow by default and saves the returned key', async()=>{
-        await handle_login({customerId: 'hl_browser'});
+        await handle_login({});
 
         expect(mocks.loopback_flow).toHaveBeenCalledWith({
-            customer_id: 'hl_browser',
+            customer_id: undefined,
         });
         expect(mocks.device_flow).not.toHaveBeenCalled();
         expect(mocks.validate_key).not.toHaveBeenCalled();
@@ -97,15 +87,14 @@ describe('commands/login', ()=>{
         );
     });
 
-    it('uses device flow and creates missing zones', async()=>{
-        process.env['BRIGHTDATA_CUSTOMER_ID'] = 'hl_env';
+    it('uses device flow without requiring a customer id and creates missing zones', async()=>{
         mocks.get_config.mockReturnValue('existing_zone');
         mocks.client_get.mockResolvedValue([]);
 
         await handle_login({device: true});
 
         expect(mocks.device_flow).toHaveBeenCalledWith({
-            customer_id: 'hl_env',
+            customer_id: undefined,
         });
         expect(mocks.loopback_flow).not.toHaveBeenCalled();
         expect(mocks.client_post).toHaveBeenNthCalledWith(
@@ -142,20 +131,21 @@ describe('commands/login', ()=>{
         );
     });
 
-    it('prompts for a customer id when browser login is interactive', async()=>{
-        Object.defineProperty(process.stdin, 'isTTY', {
-            value: true,
-            configurable: true,
+    it('forwards an optional customer id from the flag', async()=>{
+        await handle_login({customerId: ' hl_prompt '});
+
+        expect(mocks.loopback_flow).toHaveBeenCalledWith({
+            customer_id: 'hl_prompt',
         });
-        mocks.input.mockResolvedValue(' hl_prompt ');
+    });
+
+    it('forwards an optional customer id from the environment', async()=>{
+        process.env['BRIGHTDATA_CUSTOMER_ID'] = ' hl_env ';
 
         await handle_login({});
 
-        expect(mocks.input).toHaveBeenCalledWith({
-            message: 'Enter your Bright Data account ID (starts with hl_):',
-        });
         expect(mocks.loopback_flow).toHaveBeenCalledWith({
-            customer_id: 'hl_prompt',
+            customer_id: 'hl_env',
         });
     });
 

@@ -9,7 +9,7 @@ const DEVICE_START = `${BASE}/auth/cli/device/start`;
 const DEVICE_TOKEN = `${BASE}/auth/cli/device/token`;
 
 type Browser_auth_opts = {
-    customer_id: string;
+    customer_id?: string;
 };
 
 type Json_value =
@@ -99,6 +99,40 @@ const format_remote_error = (
     if (desc)
         return `${fallback}: ${desc}`;
     return fallback;
+};
+
+const normalize_customer_id = (
+    customer_id: string|undefined
+): string|undefined=>{
+    return customer_id?.trim() || undefined;
+};
+
+type Authorize_url_opts = {
+    redirect_uri: string;
+    state: string;
+    code_challenge: string;
+    customer_id?: string;
+};
+
+const build_authorize_url = (opts: Authorize_url_opts): URL=>{
+    const authorize_url = new URL(AUTHORIZE_URL);
+    authorize_url.searchParams.set('redirect_uri', opts.redirect_uri);
+    authorize_url.searchParams.set('state', opts.state);
+    authorize_url.searchParams.set('code_challenge', opts.code_challenge);
+    authorize_url.searchParams.set('code_challenge_method', 'S256');
+    const customer_id = normalize_customer_id(opts.customer_id);
+    if (customer_id)
+        authorize_url.searchParams.set('customer_id', customer_id);
+    return authorize_url;
+};
+
+const build_device_start_body = (
+    customer_id: string|undefined
+): Json_object=>{
+    const normalized = normalize_customer_id(customer_id);
+    if (!normalized)
+        return {};
+    return {customer_id: normalized};
 };
 
 const read_json = async(res: Response): Promise<Json_object|undefined>=>{
@@ -196,7 +230,7 @@ const send_text = (
 };
 
 async function loopback_flow(opts: Browser_auth_opts): Promise<string> {
-    const customer_id = opts.customer_id.trim();
+    const customer_id = normalize_customer_id(opts.customer_id);
     const state = random_b64url(24);
     const code_verifier = random_b64url(32);
     const code_challenge = sha256_b64url(code_verifier);
@@ -274,12 +308,12 @@ async function loopback_flow(opts: Browser_auth_opts): Promise<string> {
     const port = await listen(server);
     const redirect_uri = `http://127.0.0.1:${port}/callback`;
 
-    const authorize_url = new URL(AUTHORIZE_URL);
-    authorize_url.searchParams.set('redirect_uri', redirect_uri);
-    authorize_url.searchParams.set('state', state);
-    authorize_url.searchParams.set('code_challenge', code_challenge);
-    authorize_url.searchParams.set('code_challenge_method', 'S256');
-    authorize_url.searchParams.set('customer_id', customer_id);
+    const authorize_url = build_authorize_url({
+        redirect_uri,
+        state,
+        code_challenge,
+        customer_id,
+    });
 
     console.error('Opening browser for Bright Data authentication...');
     console.error(`If it does not open, visit:\n${authorize_url.toString()}`);
@@ -312,10 +346,9 @@ async function loopback_flow(opts: Browser_auth_opts): Promise<string> {
 }
 
 async function device_flow(opts: Browser_auth_opts): Promise<string> {
-    const customer_id = opts.customer_id.trim();
     const {status, json} = await post_json<Device_start_response>(
         DEVICE_START,
-        {customer_id}
+        build_device_start_body(opts.customer_id)
     );
     if (status >= 400)
     {
@@ -379,4 +412,4 @@ async function device_flow(opts: Browser_auth_opts): Promise<string> {
     throw new Error('Timed out waiting for approval');
 }
 
-export {loopback_flow, device_flow};
+export {loopback_flow, device_flow, build_authorize_url, build_device_start_body};
