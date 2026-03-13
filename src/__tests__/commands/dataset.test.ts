@@ -1,12 +1,12 @@
 import {describe, it, expect, vi, afterEach} from 'vitest';
-import {handle_webdata} from '../../commands/dataset';
+import {handle_pipelines} from '../../commands/dataset';
 
-describe('commands/webdata list', ()=>{
+describe('commands/pipelines list', ()=>{
     afterEach(()=>{
         vi.restoreAllMocks();
     });
 
-    it('prints available webdata dataset types', async()=>{
+    it('prints available pipeline dataset types', async()=>{
         let output = '';
         const write = vi.spyOn(process.stdout, 'write').mockImplementation(
             text=>{
@@ -14,7 +14,7 @@ describe('commands/webdata list', ()=>{
                 return true;
             }
         );
-        await handle_webdata('list', [], {});
+        await handle_pipelines('list', [], {});
         expect(write).toHaveBeenCalled();
         expect(output.includes('amazon_product')).toBe(true);
         expect(output.includes('linkedin_person_profile')).toBe(true);

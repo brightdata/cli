@@ -127,7 +127,7 @@ const build_input = (dataset_type: Dataset_type,
         if (!keyword || !url)
         {
             fail(
-                'Usage: brightdata webdata amazon_product_search '
+                'Usage: brightdata pipelines amazon_product_search '
                 +'<keyword> <domain_url>'
             );
             return {};
@@ -142,7 +142,7 @@ const build_input = (dataset_type: Dataset_type,
         if (!url || !first_name || !last_name)
         {
             fail(
-                'Usage: brightdata webdata linkedin_people_search '
+                'Usage: brightdata pipelines linkedin_people_search '
                 +'<url> <first_name> <last_name>'
             );
             return {};
@@ -155,7 +155,7 @@ const build_input = (dataset_type: Dataset_type,
         const num_of_reviews = params[1] ?? '10';
         if (!url)
         {
-            fail('Usage: brightdata webdata facebook_company_reviews <url> '
+            fail('Usage: brightdata pipelines facebook_company_reviews <url> '
                 +'[num_reviews]');
             return {};
         }
@@ -167,7 +167,7 @@ const build_input = (dataset_type: Dataset_type,
         const days_limit = params[1] ?? '3';
         if (!url)
         {
-            fail('Usage: brightdata webdata google_maps_reviews <url> '
+            fail('Usage: brightdata pipelines google_maps_reviews <url> '
                 +'[days_limit]');
             return {};
         }
@@ -179,7 +179,7 @@ const build_input = (dataset_type: Dataset_type,
         const num_of_comments = params[1] ?? '10';
         if (!url)
         {
-            fail('Usage: brightdata webdata youtube_comments <url> '
+            fail('Usage: brightdata pipelines youtube_comments <url> '
                 +'[num_comments]');
             return {};
         }
@@ -188,7 +188,7 @@ const build_input = (dataset_type: Dataset_type,
     const url = params[0];
     if (!url)
     {
-        fail(`Usage: brightdata webdata ${dataset_type} <url>`);
+        fail(`Usage: brightdata pipelines ${dataset_type} <url>`);
         return {};
     }
     return {url};
@@ -203,7 +203,7 @@ const extract_status = (result: unknown): string|undefined=>{
     return undefined;
 };
 
-const handle_webdata = async(
+const handle_pipelines = async(
     dataset_type_raw: string,
     params: string[],
     opts: Webdata_opts
@@ -217,8 +217,8 @@ const handle_webdata = async(
     if (!dataset_type)
     {
         fail(
-            `Unknown webdata type "${dataset_type_raw}".\n`
-            +'  Run \'brightdata webdata list\' to see available types.'
+            `Unknown pipeline type "${dataset_type_raw}".\n`
+            +'  Run \'brightdata pipelines list\' to see available types.'
         );
         return;
     }
@@ -234,7 +234,7 @@ const handle_webdata = async(
     const format = resolve_format(opts.format);
     const input = build_input(dataset_type, params);
     const spinner = start_spinner(
-        `Triggering webdata collection for ${dataset_type}...`
+        `Triggering pipeline collection for ${dataset_type}...`
     );
     try {
         const endpoint = `${TRIGGER_ENDPOINT}?dataset_id=${dataset_id}`
@@ -249,7 +249,7 @@ const handle_webdata = async(
         const snapshot_id = trigger.snapshot_id;
         if (!snapshot_id)
         {
-            fail('Failed to trigger webdata collection' +
+            fail('Failed to trigger pipeline collection' +
                 '(missing snapshot_id).');
             return;
         }
@@ -289,9 +289,9 @@ const handle_webdata = async(
     }
 };
 
-const webdata_command = new Command('webdata')
-    .description('Extract structured data using Bright Data Web Scraper API')
-    .argument('<type>', 'Webdata type or "list"')
+const pipelines_command = new Command('pipelines')
+    .description('Extract structured data using Bright Data Pipelines')
+    .argument('<type>', 'Pipeline type or "list"')
     .argument('[params...]', 'Type-specific input arguments')
     .option('--format <fmt>',
         'Result format: json, csv, ndjson, jsonl (default: json)')
@@ -303,6 +303,6 @@ const webdata_command = new Command('webdata')
     .option('--pretty', 'Pretty-print JSON output')
     .option('--timing', 'Show request timing')
     .option('-k, --api-key <key>', 'Override API key')
-    .action(handle_webdata);
+    .action(handle_pipelines);
 
-export {webdata_command, handle_webdata};
+export {pipelines_command, handle_pipelines};

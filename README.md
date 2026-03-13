@@ -15,7 +15,7 @@
   - [init](#init--interactive-setup-wizard)
   - [scrape](#scrape--web-unlocker)
   - [search](#search--serp-api)
-  - [webdata](#webdata--web-scraper-api)
+  - [pipelines](#pipelines--web-scraper-api)
   - [status](#status--check-async-jobs)
   - [zones](#zones--zone-management)
   - [config](#config--configuration)
@@ -59,10 +59,10 @@ brightdata scrape https://example.com
 brightdata search "web scraping best practices"
 
 # Extract a LinkedIn profile
-brightdata webdata linkedin_person_profile "https://linkedin.com/in/username"
+brightdata pipelines linkedin_person_profile "https://linkedin.com/in/username"
 
 # Get Amazon product data as CSV
-brightdata webdata amazon_product "https://amazon.com/dp/B09V3KXJPB" -o product.csv
+brightdata pipelines amazon_product "https://amazon.com/dp/B09V3KXJPB" -o product.csv
 ```
 
 ---
@@ -222,12 +222,12 @@ Default output for Google shows a formatted table with rank, title, URL, and sni
 
 ---
 
-### `webdata` — Web Scraper API
+### `pipelines` — Web Scraper API
 
 Extract structured data from 40+ platforms using Bright Data's Web Scraper API (data feeds). Supports e-commerce, social media, professional networks, and more.
 
 ```bash
-brightdata webdata <type> [params...] [options]
+brightdata pipelines <type> [params...] [options]
 ```
 
 **Options:**
@@ -245,43 +245,43 @@ brightdata webdata <type> [params...] [options]
 **List all available dataset types:**
 
 ```bash
-brightdata webdata list
+brightdata pipelines list
 ```
 
 **Examples:**
 
 ```bash
 # LinkedIn person profile
-brightdata webdata linkedin_person_profile "https://linkedin.com/in/username"
+brightdata pipelines linkedin_person_profile "https://linkedin.com/in/username"
 
 # Amazon product data
-brightdata webdata amazon_product "https://amazon.com/dp/B09V3KXJPB"
+brightdata pipelines amazon_product "https://amazon.com/dp/B09V3KXJPB"
 
 # Amazon product → CSV file
-brightdata webdata amazon_product "https://amazon.com/dp/B09V3KXJPB" \
+brightdata pipelines amazon_product "https://amazon.com/dp/B09V3KXJPB" \
   --format csv -o product.csv
 
 # Instagram profile
-brightdata webdata instagram_profiles "https://instagram.com/username"
+brightdata pipelines instagram_profiles "https://instagram.com/username"
 
 # Amazon search by keyword + domain
-brightdata webdata amazon_product_search "laptop" "https://amazon.com"
+brightdata pipelines amazon_product_search "laptop" "https://amazon.com"
 
 # LinkedIn people search
-brightdata webdata linkedin_people_search \
+brightdata pipelines linkedin_people_search \
   "https://linkedin.com/search/results/people" John Doe
 
 # Facebook reviews (with count)
-brightdata webdata facebook_company_reviews "https://facebook.com/page" 25
+brightdata pipelines facebook_company_reviews "https://facebook.com/page" 25
 
 # Google Maps reviews (last 7 days)
-brightdata webdata google_maps_reviews "https://maps.google.com/..." 7
+brightdata pipelines google_maps_reviews "https://maps.google.com/..." 7
 
 # YouTube comments (top 50)
-brightdata webdata youtube_comments "https://youtube.com/watch?v=..." 50
+brightdata pipelines youtube_comments "https://youtube.com/watch?v=..." 50
 
 # Pretty-print results
-brightdata webdata reddit_posts "https://reddit.com/r/programming" --pretty
+brightdata pipelines reddit_posts "https://reddit.com/r/programming" --pretty
 ```
 
 The command triggers an async data collection job, polls until results are ready, and prints them when complete.
@@ -492,7 +492,7 @@ brightdata scrape https://docs.github.com | glow -
 brightdata scrape https://example.com -f markdown > page.md
 
 # Get Amazon product data as CSV
-brightdata webdata amazon_product "https://amazon.com/dp/xxx" --format csv > product.csv
+brightdata pipelines amazon_product "https://amazon.com/dp/xxx" --format csv > product.csv
 
 # Chain commands
 brightdata search "top companies" --json \
@@ -504,7 +504,7 @@ brightdata search "top companies" --json \
 
 ## Dataset Types Reference
 
-Use `brightdata webdata list` to see all supported types, or reference the table below:
+Use `brightdata pipelines list` to see all supported types, or reference the table below:
 
 ### E-Commerce
 
@@ -601,7 +601,7 @@ Wait a moment and retry. Consider using `--async` for large scraping jobs.
 
 Increase the polling timeout:
 ```bash
-brightdata webdata amazon_product <url> --timeout 1200
+brightdata pipelines amazon_product <url> --timeout 1200
 # or
 export BRIGHTDATA_POLLING_TIMEOUT=1200
 ```
