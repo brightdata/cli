@@ -1,12 +1,36 @@
-# Bright Data CLI
-
 <p align="center">
   <img src="assets/banner.gif" alt="brightdata CLI demo" width="800" />
 </p>
 
-> Scrape, search, and extract structured data from the web — directly from your terminal.
+<h1 align="center">Bright Data CLI</h1>
 
-`brightdata-cli` is the official command-line interface for [Bright Data](https://brightdata.com). It gives you direct access to Bright Data's full API surface: the Web Unlocker, SERP API, Web Scraper (data feeds), and zone management — all from a single `brightdata` command.
+<p align="center">
+  Scrape, search, and extract structured web data — directly from your terminal.
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/brightdata-cli"><img src="https://img.shields.io/npm/v/brightdata-cli?color=black&label=npm" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/brightdata-cli"><img src="https://img.shields.io/npm/dm/brightdata-cli?color=black&label=downloads" alt="downloads" /></a>
+  <img src="https://img.shields.io/badge/node-%3E%3D18-black" alt="node requirement" />
+  <img src="https://img.shields.io/badge/license-ISC-black" alt="license" />
+</p>
+
+---
+
+## Overview
+
+`brightdata-cli` is the official command-line interface for [Bright Data](https://brightdata.com). One command to access the full Bright Data API surface:
+
+| Command | What it does |
+|---|---|
+| `brightdata scrape` | Scrape any URL — bypasses CAPTCHAs, JS rendering, anti-bot protections |
+| `brightdata search` | Google / Bing / Yandex search with structured JSON output |
+| `brightdata pipelines` | Extract structured data from 40+ platforms (Amazon, LinkedIn, TikTok…) |
+| `brightdata zones` | List and inspect your Bright Data proxy zones |
+| `brightdata budget` | View account balance and per-zone cost & bandwidth |
+| `brightdata skill` | Install Bright Data AI agent skills into your coding agent |
+| `brightdata config` | Manage CLI configuration |
+| `brightdata init` | Interactive setup wizard |
 
 ---
 
@@ -16,15 +40,16 @@
 - [Quick Start](#quick-start)
 - [Authentication](#authentication)
 - [Commands](#commands)
-  - [init](#init--interactive-setup-wizard)
-  - [scrape](#scrape--web-unlocker)
-  - [search](#search--serp-api)
-  - [pipelines](#pipelines--web-scraper-api)
-  - [status](#status--check-async-jobs)
-  - [zones](#zones--zone-management)
-  - [config](#config--configuration)
+  - [init](#init)
+  - [scrape](#scrape)
+  - [search](#search)
+  - [pipelines](#pipelines)
+  - [status](#status)
+  - [zones](#zones)
+  - [budget](#budget)
+  - [skill](#skill)
+  - [config](#config)
   - [login / logout](#login--logout)
-  - [version](#version)
 - [Configuration](#configuration)
 - [Environment Variables](#environment-variables)
 - [Output Modes](#output-modes)
@@ -46,55 +71,50 @@ Or run without installing:
 npx brightdata-cli <command>
 ```
 
-**Requirements:** Node.js ≥ 18.0.0
+> **Requires Node.js ≥ 18.0.0**
 
 ---
 
 ## Quick Start
 
 ```bash
-# Run the interactive setup wizard
+# 1. Run the interactive setup wizard
 brightdata init
 
-# Scrape a page as markdown
+# 2. Scrape a page as markdown
 brightdata scrape https://example.com
 
-# Search Google
+# 3. Search Google
 brightdata search "web scraping best practices"
 
-# Extract a LinkedIn profile
+# 4. Extract a LinkedIn profile
 brightdata pipelines linkedin_person_profile "https://linkedin.com/in/username"
 
-# Get Amazon product data as CSV
-brightdata pipelines amazon_product "https://amazon.com/dp/B09V3KXJPB" -o product.csv
+# 5. Check your account balance
+brightdata budget
 ```
 
 ---
 
 ## Authentication
 
-You need a [Bright Data API key](https://brightdata.com/cp/setting/users) to use this CLI.
+Get your API key from [brightdata.com/cp/setting/users](https://brightdata.com/cp/setting/users).
 
-**Interactive login:**
 ```bash
+# Interactive — opens browser, saves key automatically
 brightdata login
-```
 
-**Pass key directly:**
-```bash
+# Non-interactive — pass key directly
 brightdata login --api-key <your-api-key>
-```
 
-**Via environment variable (no login required):**
-```bash
+# Environment variable — no login required
 export BRIGHTDATA_API_KEY=your-api-key
-brightdata scrape https://example.com
 ```
 
-On login, the CLI automatically checks for the required `cli_unlocker` and `cli_browser` zones and creates them if they don't exist, then saves the unlocker zone as your default.
+On first login the CLI checks for required zones (`cli_unlocker`, `cli_browser`) and creates them automatically if missing.
 
-To clear saved credentials:
 ```bash
+# Clear saved credentials
 brightdata logout
 ```
 
@@ -102,56 +122,43 @@ brightdata logout
 
 ## Commands
 
-### `init` — Interactive Setup Wizard
+### `init`
 
-The recommended way to get started. Walks you through authentication, zone selection, and default format configuration.
+Interactive setup wizard. The recommended way to get started.
 
 ```bash
 brightdata init
 ```
 
-**Options:**
+Walks through: API key detection → zone selection → default output format → quick-start examples.
 
 | Flag | Description |
 |---|---|
 | `--skip-auth` | Skip the authentication step |
 | `-k, --api-key <key>` | Provide API key directly |
 
-The wizard:
-1. Displays an ASCII art banner
-2. Detects or prompts for your API key
-3. Validates and saves the key
-4. Loads your active zones
-5. Lets you pick default zones for scraping and SERP
-6. Sets your preferred output format
-7. Shows quick-start examples
-
 ---
 
-### `scrape` — Web Unlocker
+### `scrape`
 
-Scrape any URL using Bright Data's Web Unlocker API, which handles CAPTCHAs, JavaScript rendering, and anti-bot protections automatically.
+Scrape any URL using Bright Data's Web Unlocker. Handles CAPTCHAs, JavaScript rendering, and anti-bot protections automatically.
 
 ```bash
 brightdata scrape <url> [options]
 ```
 
-**Options:**
-
 | Flag | Description |
 |---|---|
-| `-f, --format <format>` | Output format: `markdown`, `html`, `screenshot`, `json` (default: `markdown`) |
-| `--country <code>` | ISO country code for geo-targeting (e.g. `us`, `de`, `jp`) |
+| `-f, --format <fmt>` | `markdown` · `html` · `screenshot` · `json` (default: `markdown`) |
+| `--country <code>` | Geo-target by ISO country code (e.g. `us`, `de`, `jp`) |
 | `--zone <name>` | Web Unlocker zone name |
 | `--mobile` | Use a mobile user agent |
-| `--async` | Submit asynchronously and return a job ID |
+| `--async` | Submit async job, return a snapshot ID |
 | `-o, --output <path>` | Write output to file |
-| `--json` | Force JSON output |
-| `--pretty` | Pretty-print JSON output |
-| `--timing` | Show request timing |
-| `-k, --api-key <key>` | Override API key for this request |
+| `--json` / `--pretty` | JSON output (raw / indented) |
+| `-k, --api-key <key>` | Override API key |
 
-**Examples:**
+**Examples**
 
 ```bash
 # Scrape as markdown (default)
@@ -160,283 +167,275 @@ brightdata scrape https://news.ycombinator.com
 # Scrape as raw HTML
 brightdata scrape https://example.com -f html
 
-# Scrape with US geo-targeting, save to file
+# US geo-targeting, save to file
 brightdata scrape https://amazon.com -f json --country us -o product.json
 
-# Scrape and pipe to a markdown viewer
-brightdata scrape https://docs.github.com/en | glow -
+# Pipe to a markdown viewer
+brightdata scrape https://docs.github.com | glow -
 
-# Submit async job (returns a snapshot ID)
+# Async — returns a snapshot ID you can poll with `status`
 brightdata scrape https://example.com --async
 ```
 
 ---
 
-### `search` — SERP API
+### `search`
 
-Search the web through Bright Data's SERP API. Google results include structured data (organic, people-also-ask, related searches). Bing and Yandex return raw content.
+Search Google, Bing, or Yandex via Bright Data's SERP API. Google results include structured data (organic results, ads, people-also-ask, related searches).
 
 ```bash
 brightdata search <query> [options]
 ```
 
-**Options:**
-
 | Flag | Description |
 |---|---|
-| `--engine <name>` | Search engine: `google`, `bing`, `yandex` (default: `google`) |
-| `--country <code>` | Country code for localized results (e.g. `us`, `de`) |
+| `--engine <name>` | `google` · `bing` · `yandex` (default: `google`) |
+| `--country <code>` | Localized results (e.g. `us`, `de`) |
 | `--language <code>` | Language code (e.g. `en`, `fr`) |
-| `--page <n>` | Results page number, 0-indexed (default: `0`) |
-| `--type <type>` | Search type: `web`, `news`, `images`, `shopping` (default: `web`) |
+| `--page <n>` | Page number, 0-indexed (default: `0`) |
+| `--type <type>` | `web` · `news` · `images` · `shopping` (default: `web`) |
+| `--device <type>` | `desktop` · `mobile` |
 | `--zone <name>` | SERP zone name |
-| `--device <type>` | Device type: `desktop`, `mobile` |
 | `-o, --output <path>` | Write output to file |
-| `--json` | Force JSON output |
-| `--pretty` | Pretty-print JSON output |
-| `--timing` | Show request timing |
-| `-k, --api-key <key>` | Override API key for this request |
+| `--json` / `--pretty` | JSON output (raw / indented) |
+| `-k, --api-key <key>` | Override API key |
 
-**Examples:**
+**Examples**
 
 ```bash
-# Search Google (default — displays a formatted table)
+# Formatted table output (default)
 brightdata search "typescript best practices"
 
-# Search in German, localized to Germany
+# German localized results
 brightdata search "restaurants berlin" --country de --language de
 
-# Get structured JSON (organic results, ads, related searches, etc.)
-brightdata search "nodejs" --pretty
-
-# Search news results
+# News search
 brightdata search "AI regulation" --type news
 
-# Paginate results (page 2)
+# Page 2 of results
 brightdata search "web scraping" --page 1
 
-# Pipe result URLs to a script
+# Extract just the URLs
 brightdata search "open source scraping" --json | jq -r '.organic[].link'
 
-# Search Bing instead
+# Search Bing
 brightdata search "bright data pricing" --engine bing
 ```
 
-Default output for Google shows a formatted table with rank, title, URL, and snippet. Use `--json` or `--pretty` to get the full structured response.
-
 ---
 
-### `pipelines` — Web Scraper API
+### `pipelines`
 
-Extract structured data from 40+ platforms using Bright Data's Web Scraper API (data feeds). Supports e-commerce, social media, professional networks, and more.
+Extract structured data from 40+ platforms using Bright Data's Web Scraper API. Triggers an async collection job, polls until ready, and returns results.
 
 ```bash
 brightdata pipelines <type> [params...] [options]
 ```
 
-**Options:**
-
 | Flag | Description |
 |---|---|
-| `--format <fmt>` | Result format: `json`, `csv`, `ndjson`, `jsonl` (default: `json`) |
-| `--timeout <seconds>` | Polling timeout in seconds (default: `600`) |
+| `--format <fmt>` | `json` · `csv` · `ndjson` · `jsonl` (default: `json`) |
+| `--timeout <seconds>` | Polling timeout (default: `600`) |
 | `-o, --output <path>` | Write output to file |
-| `--json` | Force JSON output |
-| `--pretty` | Pretty-print JSON output |
-| `--timing` | Show request timing |
-| `-k, --api-key <key>` | Override API key for this request |
-
-**List all available dataset types:**
+| `--json` / `--pretty` | JSON output (raw / indented) |
+| `-k, --api-key <key>` | Override API key |
 
 ```bash
+# List all available dataset types
 brightdata pipelines list
 ```
 
-**Examples:**
+**Examples**
 
 ```bash
-# LinkedIn person profile
+# LinkedIn profile
 brightdata pipelines linkedin_person_profile "https://linkedin.com/in/username"
 
-# Amazon product data
-brightdata pipelines amazon_product "https://amazon.com/dp/B09V3KXJPB"
-
-# Amazon product → CSV file
+# Amazon product → CSV
 brightdata pipelines amazon_product "https://amazon.com/dp/B09V3KXJPB" \
   --format csv -o product.csv
 
 # Instagram profile
 brightdata pipelines instagram_profiles "https://instagram.com/username"
 
-# Amazon search by keyword + domain
+# Amazon search by keyword
 brightdata pipelines amazon_product_search "laptop" "https://amazon.com"
 
-# LinkedIn people search
-brightdata pipelines linkedin_people_search \
-  "https://linkedin.com/search/results/people" John Doe
-
-# Facebook reviews (with count)
-brightdata pipelines facebook_company_reviews "https://facebook.com/page" 25
-
-# Google Maps reviews (last 7 days)
+# Google Maps reviews
 brightdata pipelines google_maps_reviews "https://maps.google.com/..." 7
 
 # YouTube comments (top 50)
 brightdata pipelines youtube_comments "https://youtube.com/watch?v=..." 50
-
-# Pretty-print results
-brightdata pipelines reddit_posts "https://reddit.com/r/programming" --pretty
 ```
 
-The command triggers an async data collection job, polls until results are ready, and prints them when complete.
-
-**Special input formats:**
-
-| Dataset type | Arguments |
-|---|---|
-| Most types | `<url>` |
-| `amazon_product_search` | `<keyword> <domain_url>` |
-| `linkedin_people_search` | `<search_url> <first_name> <last_name>` |
-| `facebook_company_reviews` | `<url> [num_reviews]` |
-| `google_maps_reviews` | `<url> [days_limit]` |
-| `youtube_comments` | `<url> [num_comments]` |
+See [Dataset Types Reference](#dataset-types-reference) for the full list.
 
 ---
 
-### `status` — Check Async Jobs
+### `status`
 
-Check the status of an asynchronous Web Scraper snapshot job.
+Check the status of an async snapshot job (returned by `--async` or `pipelines`).
 
 ```bash
 brightdata status <job-id> [options]
 ```
 
-**Options:**
-
 | Flag | Description |
 |---|---|
-| `--wait` | Poll until the job is complete |
-| `--timeout <seconds>` | Polling timeout in seconds (default: `600`) |
+| `--wait` | Poll until the job completes |
+| `--timeout <seconds>` | Polling timeout (default: `600`) |
 | `-o, --output <path>` | Write output to file |
-| `--json` | Force JSON output |
-| `--pretty` | Pretty-print JSON output |
-| `--timing` | Show request timing |
-| `-k, --api-key <key>` | Override API key for this request |
-
-**Examples:**
+| `--json` / `--pretty` | JSON output (raw / indented) |
+| `-k, --api-key <key>` | Override API key |
 
 ```bash
 # Check current status
 brightdata status s_abc123xyz
 
-# Wait until complete, then print results
-brightdata status s_abc123xyz --wait
+# Block until complete
+brightdata status s_abc123xyz --wait --pretty
 
-# Wait with a custom timeout (5 minutes)
-brightdata status s_abc123xyz --wait --timeout 300 --pretty
+# Custom timeout (5 minutes)
+brightdata status s_abc123xyz --wait --timeout 300
 ```
 
 ---
 
-### `zones` — Zone Management
+### `zones`
 
-List and inspect your Bright Data zones.
+List and inspect your Bright Data proxy zones.
 
 ```bash
-# List all active zones
-brightdata zones
-
-# Show details for a specific zone
-brightdata zones info <name>
+brightdata zones               # List all active zones
+brightdata zones info <name>   # Show full details for a zone
 ```
 
-**Examples:**
-
 ```bash
-# List zones as a table
-brightdata zones
-
-# Get zone info as JSON
-brightdata zones info my_unlocker_zone --pretty
-
-# Export all zones to JSON file
+# Export all zones as JSON
 brightdata zones --json -o zones.json
+
+# Inspect a specific zone
+brightdata zones info my_unlocker_zone --pretty
 ```
 
 ---
 
-### `config` — Configuration
+### `budget`
 
-View and manage CLI configuration settings.
+View your account balance and per-zone cost and bandwidth usage. Read-only — no writes to the API.
 
 ```bash
-# Show all config
-brightdata config
-
-# Get a specific value
-brightdata config get default_zone_unlocker
-
-# Set a value
-brightdata config set default_zone_unlocker my_zone
-brightdata config set default_zone_serp my_serp_zone
-brightdata config set default_format json
-brightdata config set api_url https://api.brightdata.com
+brightdata budget                     # Show account balance (quick view)
+brightdata budget balance             # Account balance + pending charges
+brightdata budget zones               # Cost & bandwidth table for all zones
+brightdata budget zone <name>         # Detailed cost & bandwidth for one zone
 ```
 
-**Configurable keys:**
+| Flag | Description |
+|---|---|
+| `--from <datetime>` | Start of date range (e.g. `2024-01-01T00:00:00`) |
+| `--to <datetime>` | End of date range |
+| `--json` / `--pretty` | JSON output (raw / indented) |
+| `-k, --api-key <key>` | Override API key |
+
+```bash
+# Current account balance
+brightdata budget
+
+# Zone costs for January 2024
+brightdata budget zones --from 2024-01-01T00:00:00 --to 2024-02-01T00:00:00
+
+# Detailed view of a specific zone
+brightdata budget zone my_unlocker_zone
+```
+
+---
+
+### `skill`
+
+Install Bright Data AI agent skills into your coding agent (Claude Code, Cursor, Copilot, etc.). Skills provide your agent with context and instructions for using Bright Data APIs effectively.
+
+```bash
+brightdata skill add              # Interactive picker — choose skill + agent
+brightdata skill add <name>       # Install a specific skill directly
+brightdata skill list             # List all available Bright Data skills
+```
+
+**Available skills**
+
+| Skill | Description |
+|---|---|
+| `search` | Search Google and get structured JSON results |
+| `scrape` | Scrape any webpage as clean markdown with bot bypass |
+| `data-feeds` | Extract structured data from 40+ websites |
+| `bright-data-mcp` | Orchestrate 60+ Bright Data MCP tools |
+| `bright-data-best-practices` | Reference knowledge base for writing Bright Data code |
+
+```bash
+# Interactive — select skills and choose which agents to install to
+brightdata skill add
+
+# Install the scrape skill directly
+brightdata skill add scrape
+
+# See what's available
+brightdata skill list
+```
+
+---
+
+### `config`
+
+View and manage CLI configuration.
+
+```bash
+brightdata config                              # Show all config
+brightdata config get <key>                    # Get a single value
+brightdata config set <key> <value>            # Set a value
+```
 
 | Key | Description |
 |---|---|
-| `default_zone_unlocker` | Default zone for `scrape` and `search` commands |
-| `default_zone_serp` | Default zone for `search` command (overrides unlocker zone) |
+| `default_zone_unlocker` | Default zone for `scrape` and `search` |
+| `default_zone_serp` | Default zone for `search` (overrides unlocker zone) |
 | `default_format` | Default output format: `markdown` or `json` |
 | `api_url` | Override the Bright Data API base URL |
+
+```bash
+brightdata config set default_zone_unlocker my_zone
+brightdata config set default_format json
+```
 
 ---
 
 ### `login` / `logout`
 
 ```bash
-# Interactive login
-brightdata login
-
-# Login with key directly
-brightdata login --api-key <your-key>
-
-# Clear saved credentials
-brightdata logout
-```
-
----
-
-### `version`
-
-```bash
-brightdata version
-# or
-brightdata -v
+brightdata login                      # Interactive login
+brightdata login --api-key <key>      # Non-interactive
+brightdata logout                     # Clear saved credentials
 ```
 
 ---
 
 ## Configuration
 
-Config files are stored in an OS-appropriate location:
+Config is stored in an OS-appropriate location:
 
 | OS | Path |
 |---|---|
 | macOS | `~/Library/Application Support/brightdata-cli/` |
-| Windows | `~/AppData/Roaming/brightdata-cli/` |
 | Linux | `~/.config/brightdata-cli/` |
+| Windows | `%APPDATA%\brightdata-cli\` |
 
 Two files are stored:
-- **`credentials.json`** — your API key
-- **`config.json`** — zones, output format, preferences
+- `credentials.json` — API key
+- `config.json` — zones, output format, preferences
 
-**Priority cascade** (highest to lowest):
+**Priority order** (highest → lowest):
 
 ```
-CLI flags  →  Environment variables  →  Stored config  →  Defaults
+CLI flags  →  Environment variables  →  config.json  →  Defaults
 ```
 
 ---
@@ -450,8 +449,6 @@ CLI flags  →  Environment variables  →  Stored config  →  Defaults
 | `BRIGHTDATA_SERP_ZONE` | Default SERP zone |
 | `BRIGHTDATA_POLLING_TIMEOUT` | Default polling timeout in seconds |
 
-**Example:**
-
 ```bash
 BRIGHTDATA_API_KEY=xxx BRIGHTDATA_UNLOCKER_ZONE=my_zone \
   brightdata scrape https://example.com
@@ -461,16 +458,16 @@ BRIGHTDATA_API_KEY=xxx BRIGHTDATA_UNLOCKER_ZONE=my_zone \
 
 ## Output Modes
 
-Every command supports multiple output modes:
+Every command supports:
 
-| Mode | Flag | Description |
+| Mode | Flag | Behavior |
 |---|---|---|
-| Human-readable | (default) | Formatted table or markdown, with colors |
-| JSON | `--json` | Raw JSON output |
-| Pretty JSON | `--pretty` | Indented, human-readable JSON |
-| File | `-o <path>` | Write output to a file |
+| Human-readable | *(default)* | Formatted table or markdown, with colors |
+| JSON | `--json` | Compact JSON to stdout |
+| Pretty JSON | `--pretty` | Indented JSON to stdout |
+| File | `-o <path>` | Write to file; format inferred from extension |
 
-File format is auto-detected from the extension:
+**Auto-detected file formats:**
 
 | Extension | Format |
 |---|---|
@@ -483,23 +480,23 @@ File format is auto-detected from the extension:
 
 ## Pipe-Friendly Usage
 
-When stdout is not a TTY (i.e. when piping or redirecting), the CLI automatically disables colors, spinners, and interactive prompts. Errors are sent to `stderr`, data to `stdout`.
+When stdout is not a TTY, colors and spinners are automatically disabled. Errors go to `stderr`, data to `stdout`.
 
 ```bash
-# Extract links from Google search
+# Extract URLs from search results
 brightdata search "nodejs tutorials" --json | jq -r '.organic[].link'
 
-# Scrape a page and view with a markdown reader
+# Scrape and view with a markdown reader
 brightdata scrape https://docs.github.com | glow -
 
 # Save scraped content to a file
 brightdata scrape https://example.com -f markdown > page.md
 
-# Get Amazon product data as CSV
+# Amazon product data as CSV
 brightdata pipelines amazon_product "https://amazon.com/dp/xxx" --format csv > product.csv
 
-# Chain commands
-brightdata search "top companies" --json \
+# Chain search → scrape
+brightdata search "top open source projects" --json \
   | jq -r '.organic[0].link' \
   | xargs brightdata scrape
 ```
@@ -508,47 +505,49 @@ brightdata search "top companies" --json \
 
 ## Dataset Types Reference
 
-Use `brightdata pipelines list` to see all supported types, or reference the table below:
+```bash
+brightdata pipelines list   # See all types in your terminal
+```
 
 ### E-Commerce
 
 | Type | Platform |
 |---|---|
 | `amazon_product` | Amazon product page |
-| `amazon_product_reviews` | Amazon product reviews |
+| `amazon_product_reviews` | Amazon reviews |
 | `amazon_product_search` | Amazon search results |
 | `walmart_product` | Walmart product page |
 | `walmart_seller` | Walmart seller profile |
-| `ebay_product` | eBay product listing |
-| `bestbuy_products` | Best Buy products |
-| `etsy_products` | Etsy products |
-| `homedepot_products` | Home Depot products |
-| `zara_products` | Zara products |
-| `google_shopping` | Google Shopping results |
+| `ebay_product` | eBay listing |
+| `bestbuy_products` | Best Buy |
+| `etsy_products` | Etsy |
+| `homedepot_products` | Home Depot |
+| `zara_products` | Zara |
+| `google_shopping` | Google Shopping |
 
 ### Professional Networks
 
 | Type | Platform |
 |---|---|
-| `linkedin_person_profile` | LinkedIn person profile |
-| `linkedin_company_profile` | LinkedIn company page |
-| `linkedin_job_listings` | LinkedIn job postings |
+| `linkedin_person_profile` | LinkedIn person |
+| `linkedin_company_profile` | LinkedIn company |
+| `linkedin_job_listings` | LinkedIn jobs |
 | `linkedin_posts` | LinkedIn posts |
 | `linkedin_people_search` | LinkedIn people search |
-| `crunchbase_company` | Crunchbase company profile |
-| `zoominfo_company_profile` | ZoomInfo company profile |
+| `crunchbase_company` | Crunchbase |
+| `zoominfo_company_profile` | ZoomInfo |
 
 ### Social Media
 
 | Type | Platform |
 |---|---|
-| `instagram_profiles` | Instagram user profiles |
+| `instagram_profiles` | Instagram profiles |
 | `instagram_posts` | Instagram posts |
 | `instagram_reels` | Instagram reels |
 | `instagram_comments` | Instagram comments |
 | `facebook_posts` | Facebook posts |
 | `facebook_marketplace_listings` | Facebook Marketplace |
-| `facebook_company_reviews` | Facebook page reviews |
+| `facebook_company_reviews` | Facebook reviews |
 | `facebook_events` | Facebook events |
 | `tiktok_profiles` | TikTok profiles |
 | `tiktok_posts` | TikTok posts |
@@ -565,21 +564,19 @@ Use `brightdata pipelines list` to see all supported types, or reference the tab
 | Type | Platform |
 |---|---|
 | `google_maps_reviews` | Google Maps reviews |
-| `google_play_store` | Google Play app data |
-| `apple_app_store` | Apple App Store data |
-| `reuter_news` | Reuters news articles |
+| `google_play_store` | Google Play |
+| `apple_app_store` | Apple App Store |
+| `reuter_news` | Reuters news |
 | `github_repository_file` | GitHub repository files |
-| `yahoo_finance_business` | Yahoo Finance business data |
-| `zillow_properties_listing` | Zillow property listings |
-| `booking_hotel_listings` | Booking.com hotel listings |
+| `yahoo_finance_business` | Yahoo Finance |
+| `zillow_properties_listing` | Zillow |
+| `booking_hotel_listings` | Booking.com |
 
 ---
 
 ## Troubleshooting
 
 **`Error: No Web Unlocker zone specified`**
-
-Run `brightdata init` or set a default zone:
 ```bash
 brightdata config set default_zone_unlocker <your-zone-name>
 # or
@@ -587,38 +584,28 @@ export BRIGHTDATA_UNLOCKER_ZONE=<your-zone-name>
 ```
 
 **`Error: Invalid or expired API key`**
-
-Re-authenticate:
 ```bash
 brightdata login
 ```
 
 **`Error: Access denied`**
 
-Check your zone permissions in the [Bright Data control panel](https://brightdata.com/cp).
+Check zone permissions in the [Bright Data control panel](https://brightdata.com/cp).
 
 **`Error: Rate limit exceeded`**
 
-Wait a moment and retry. Consider using `--async` for large scraping jobs.
+Wait a moment and retry. Use `--async` for large jobs to avoid timeouts.
 
-**Async job is taking too long**
-
-Increase the polling timeout:
+**Async job is too slow**
 ```bash
 brightdata pipelines amazon_product <url> --timeout 1200
 # or
 export BRIGHTDATA_POLLING_TIMEOUT=1200
 ```
 
-**Output looks garbled in a non-interactive terminal**
+**Garbled output in non-interactive terminal**
 
-Colors and spinners are automatically disabled when not in a TTY. If you still see ANSI codes, pipe through `cat` or redirect output.
-
----
-
-## License
-
-ISC — © Bright Data
+Colors and spinners are disabled automatically when not in a TTY. If you still see ANSI codes, add `| cat` at the end of your command.
 
 ---
 
@@ -627,4 +614,11 @@ ISC — © Bright Data
 - [Bright Data Website](https://brightdata.com)
 - [Control Panel](https://brightdata.com/cp)
 - [API Key Settings](https://brightdata.com/cp/setting/users)
-- [GitHub Issues](https://github.com/brightdata/brightdata-cli/issues)
+- [API Reference](https://docs.brightdata.com/api-reference)
+- [Report an Issue](https://github.com/brightdata/brightdata-cli/issues)
+
+---
+
+<p align="center">
+  <sub>© Bright Data · ISC License</sub>
+</p>
