@@ -10,6 +10,7 @@ import {zones_command} from './commands/zones';
 import {config_command} from './commands/config';
 import {init_command} from './commands/init';
 import {version_command} from './commands/version';
+import {skill_command} from './commands/skill';
 import packageJson from '../package.json';
 
 const program = new Command();
@@ -34,6 +35,7 @@ program.addCommand(zones_command);
 program.addCommand(config_command);
 program.addCommand(init_command);
 program.addCommand(version_command);
+program.addCommand(skill_command);
 
 
 program.parse(process.argv);
