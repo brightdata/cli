@@ -1,5 +1,9 @@
 # Bright Data CLI
 
+<p align="center">
+  <img src="assets/banner.gif" alt="brightdata CLI demo" width="800" />
+</p>
+
 > Scrape, search, and extract structured data from the web — directly from your terminal.
 
 `brightdata-cli` is the official command-line interface for [Bright Data](https://brightdata.com). It gives you direct access to Bright Data's full API surface: the Web Unlocker, SERP API, Web Scraper (data feeds), and zone management — all from a single `brightdata` command.
