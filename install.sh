@@ -4,7 +4,7 @@ set -e
 PACKAGE_NAME="@brightdata/cli"
 COMMAND_NAME="brightdata"
 COMMAND_ALIAS="bdata"
-MIN_NODE_MAJOR=18
+MIN_NODE_MAJOR=20
 
 if [ -t 1 ]; then
     RED='\033[0;31m'
@@ -23,63 +23,21 @@ info()  { printf "${BLUE}${BOLD}==>${RESET} %s\n" "$1"; }
 warn()  { printf "${YELLOW}${BOLD}warning:${RESET} %s\n" "$1"; }
 error() { printf "${RED}${BOLD}error:${RESET} %s\n" "$1" >&2; exit 1; }
 
-find_node() {
-    if command -v node >/dev/null 2>&1; then
-        version=$(node -v 2>/dev/null | sed 's/^v//')
-        major=$(echo "$version" | cut -d. -f1)
-        if [ "$major" -ge "$MIN_NODE_MAJOR" ] 2>/dev/null; then
-            echo "$version"
-            return 0
-        fi
-    fi
-    return 1
-}
-
-install_node() {
-    info "Node.js ${MIN_NODE_MAJOR}+ not found. Attempting to install..."
-
-    if [ -n "$NVM_DIR" ] && [ -s "$NVM_DIR/nvm.sh" ]; then
-        info "Found nvm — installing Node.js ${MIN_NODE_MAJOR}..."
-        . "$NVM_DIR/nvm.sh"
-        nvm install "$MIN_NODE_MAJOR"
-        nvm use "$MIN_NODE_MAJOR"
-        return 0
+check_node() {
+    if ! command -v node >/dev/null 2>&1; then
+        error "Node.js is not installed.
+  Install Node.js ${MIN_NODE_MAJOR}+ from https://nodejs.org/ and try again."
     fi
 
-    if command -v fnm >/dev/null 2>&1; then
-        info "Found fnm — installing Node.js ${MIN_NODE_MAJOR}..."
-        fnm install "$MIN_NODE_MAJOR"
-        fnm use "$MIN_NODE_MAJOR"
-        return 0
+    version=$(node -v 2>/dev/null | sed 's/^v//')
+    major=$(echo "$version" | cut -d. -f1)
+
+    if ! [ "$major" -ge "$MIN_NODE_MAJOR" ] 2>/dev/null; then
+        error "Node.js v${version} found, but v${MIN_NODE_MAJOR}+ is required.
+  Update Node.js from https://nodejs.org/ and try again."
     fi
 
-    if command -v brew >/dev/null 2>&1; then
-        info "Installing Node.js via Homebrew..."
-        brew install node@"$MIN_NODE_MAJOR"
-        return 0
-    fi
-
-    if command -v apt-get >/dev/null 2>&1; then
-        info "Installing Node.js via apt..."
-        if command -v sudo >/dev/null 2>&1; then
-            sudo apt-get update -y && sudo apt-get install -y nodejs npm
-        else
-            apt-get update -y && apt-get install -y nodejs npm
-        fi
-        return 0
-    fi
-
-    if command -v yum >/dev/null 2>&1; then
-        info "Installing Node.js via yum..."
-        if command -v sudo >/dev/null 2>&1; then
-            sudo yum install -y nodejs npm
-        else
-            yum install -y nodejs npm
-        fi
-        return 0
-    fi
-
-    return 1
+    echo "$version"
 }
 
 main() {
@@ -103,30 +61,15 @@ main() {
     printf "\n"
     printf "${DIM}  CLI Installer${RESET}\n\n"
 
-    NODE_VERSION=$(find_node) || {
-        install_node || error "Node.js ${MIN_NODE_MAJOR}+ is required but could not be installed.
-  Install it from https://nodejs.org/ and try again."
-        NODE_VERSION=$(find_node) || error "Node.js was installed but still not found in PATH.
-  Restart your shell and try again."
-    }
+    NODE_VERSION=$(check_node)
     info "Found Node.js v${NODE_VERSION}"
 
-    if command -v npm >/dev/null 2>&1; then
-        PM="npm"
-    elif command -v yarn >/dev/null 2>&1; then
-        PM="yarn"
-    elif command -v pnpm >/dev/null 2>&1; then
-        PM="pnpm"
-    else
-        error "No package manager found (npm, yarn, or pnpm). Install npm and try again."
+    if ! command -v npm >/dev/null 2>&1; then
+        error "npm is not available. Install npm and try again."
     fi
 
-    info "Installing ${PACKAGE_NAME} with ${PM}..."
-    case "$PM" in
-        npm)  npm install -g "$PACKAGE_NAME" ;;
-        yarn) yarn global add "$PACKAGE_NAME" ;;
-        pnpm) pnpm add -g "$PACKAGE_NAME" ;;
-    esac
+    info "Installing ${PACKAGE_NAME} globally..."
+    npm install -g "${PACKAGE_NAME}"
 
     if command -v "$COMMAND_NAME" >/dev/null 2>&1; then
         installed_version=$("$COMMAND_NAME" --version 2>/dev/null || echo "unknown")
@@ -136,7 +79,6 @@ main() {
         printf "\n${GREEN}${BOLD}Success!${RESET} ${PACKAGE_NAME} ${installed_version} is installed.\n"
     else
         printf "\n${GREEN}${BOLD}Installed!${RESET} You may need to restart your shell or add the npm global bin directory to your PATH.\n"
-
         npm_bin=$(npm bin -g 2>/dev/null) || true
         if [ -n "$npm_bin" ] && ! echo "$PATH" | tr ':' '\n' | grep -qx "$npm_bin"; then
             warn "${npm_bin} is not in your PATH. Add it with:"

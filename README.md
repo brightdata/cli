@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/%40brightdata%2Fcli"><img src="https://img.shields.io/npm/v/%40brightdata%2Fcli?color=black&label=npm" alt="npm version" /></a>
-  <img src="https://img.shields.io/badge/node-%3E%3D18-black" alt="node requirement" />
+  <img src="https://img.shields.io/badge/node-%3E%3D20-black" alt="node requirement" />
   <img src="https://img.shields.io/badge/license-ISC-black" alt="license" />
 </p>
 
@@ -70,7 +70,7 @@ Or run without installing:
 npx --yes --package @brightdata/cli brightdata <command>
 ```
 
-> **Requires Node.js ≥ 18.0.0**
+> **Requires Node.js ≥ 20.0.0**
 
 ---
 
@@ -614,7 +614,7 @@ Colors and spinners are disabled automatically when not in a TTY. If you still s
 - [Control Panel](https://brightdata.com/cp)
 - [API Key Settings](https://brightdata.com/cp/setting/users)
 - [API Reference](https://docs.brightdata.com/api-reference)
-- [Report an Issue](https://github.com/brightdata/brightdata-cli/issues)
+- [Report an Issue](https://github.com/brightdata/cli/issues)
 
 ---
 
