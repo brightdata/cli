@@ -246,7 +246,7 @@ const maybe_show_install_hint = async()=>{
         return;
     process.stderr.write('\n');
     process.stderr.write(yellow('Install globally:')+'\n');
-    process.stderr.write('  npm install -g brightdata-cli\n\n');
+    process.stderr.write('  npm install -g @brightdata/cli\n\n');
 };
 
 const handle_init = async(opts: Init_opts)=>{

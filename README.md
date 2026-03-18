@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/brightdata-cli"><img src="https://img.shields.io/npm/v/brightdata-cli?color=black&label=npm" alt="npm version" /></a>
-  <a href="https://www.npmjs.com/package/brightdata-cli"><img src="https://img.shields.io/npm/dm/brightdata-cli?color=black&label=downloads" alt="downloads" /></a>
+  <a href="https://www.npmjs.com/package/%40brightdata%2Fcli"><img src="https://img.shields.io/npm/v/%40brightdata%2Fcli?color=black&label=npm" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/%40brightdata%2Fcli"><img src="https://img.shields.io/npm/dm/%40brightdata%2Fcli?color=black&label=downloads" alt="downloads" /></a>
   <img src="https://img.shields.io/badge/node-%3E%3D18-black" alt="node requirement" />
   <img src="https://img.shields.io/badge/license-ISC-black" alt="license" />
 </p>
@@ -19,7 +19,7 @@
 
 ## Overview
 
-`brightdata-cli` is the official command-line interface for [Bright Data](https://brightdata.com). One command to access the full Bright Data API surface:
+`@brightdata/cli` is the official npm package for the [Bright Data](https://brightdata.com) CLI. It installs the `brightdata` command (with `bdata` as a shorthand alias) for access to the full Bright Data API surface:
 
 | Command | What it does |
 |---|---|
@@ -62,13 +62,13 @@
 ## Installation
 
 ```bash
-npm install -g brightdata-cli
+npm install -g @brightdata/cli
 ```
 
 Or run without installing:
 
 ```bash
-npx brightdata-cli <command>
+npx --yes --package @brightdata/cli brightdata <command>
 ```
 
 > **Requires Node.js ≥ 18.0.0**
