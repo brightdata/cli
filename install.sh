@@ -144,11 +144,17 @@ main() {
         fi
     fi
 
+    printf "\n"
+    if command -v "$COMMAND_NAME" >/dev/null 2>&1; then
+        "$COMMAND_NAME" login
+    elif command -v "$COMMAND_ALIAS" >/dev/null 2>&1; then
+        "$COMMAND_ALIAS" login
+    fi
+
     printf "\nGet started:\n"
-    printf "  ${BOLD}${COMMAND_ALIAS} init${RESET}          # set up authentication & defaults\n"
     printf "  ${BOLD}${COMMAND_ALIAS} scrape${RESET} <url>   # scrape any URL\n"
     printf "  ${BOLD}${COMMAND_ALIAS} search${RESET} <query> # search the web\n"
-    printf "  ${BOLD}${COMMAND_ALIAS} --help${RESET}         # see all commands\n\n"
+    printf "  ${BOLD}${COMMAND_ALIAS} skill${RESET}           # install agent skills\n\n"
 }
 
 main
