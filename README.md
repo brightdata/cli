@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.gif" alt="brightdata CLI demo" width="800" />
+  <img src="https://raw.githubusercontent.com/brightdata/cli/main/assets/banner.gif" alt="Bright Data CLI" width="800" />
 </p>
 
 <h1 align="center">Bright Data CLI</h1>
