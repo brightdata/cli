@@ -6,7 +6,6 @@ COMMAND_NAME="brightdata"
 COMMAND_ALIAS="bdata"
 MIN_NODE_MAJOR=18
 
-# Colors (only when outputting to a terminal)
 if [ -t 1 ]; then
     RED='\033[0;31m'
     GREEN='\033[0;32m'
@@ -24,7 +23,6 @@ info()  { printf "${BLUE}${BOLD}==>${RESET} %s\n" "$1"; }
 warn()  { printf "${YELLOW}${BOLD}warning:${RESET} %s\n" "$1"; }
 error() { printf "${RED}${BOLD}error:${RESET} %s\n" "$1" >&2; exit 1; }
 
-# ── Check Node.js ≥ 18 ──────────────────────────────────────────────
 find_node() {
     if command -v node >/dev/null 2>&1; then
         version=$(node -v 2>/dev/null | sed 's/^v//')
@@ -37,11 +35,9 @@ find_node() {
     return 1
 }
 
-# ── Install Node.js if missing ───────────────────────────────────────
 install_node() {
     info "Node.js ${MIN_NODE_MAJOR}+ not found. Attempting to install..."
 
-    # Try nvm
     if [ -n "$NVM_DIR" ] && [ -s "$NVM_DIR/nvm.sh" ]; then
         info "Found nvm — installing Node.js ${MIN_NODE_MAJOR}..."
         . "$NVM_DIR/nvm.sh"
@@ -50,7 +46,6 @@ install_node() {
         return 0
     fi
 
-    # Try fnm
     if command -v fnm >/dev/null 2>&1; then
         info "Found fnm — installing Node.js ${MIN_NODE_MAJOR}..."
         fnm install "$MIN_NODE_MAJOR"
@@ -58,14 +53,12 @@ install_node() {
         return 0
     fi
 
-    # Try Homebrew (macOS / Linux)
     if command -v brew >/dev/null 2>&1; then
         info "Installing Node.js via Homebrew..."
         brew install node@"$MIN_NODE_MAJOR"
         return 0
     fi
 
-    # Try apt (Debian / Ubuntu)
     if command -v apt-get >/dev/null 2>&1; then
         info "Installing Node.js via apt..."
         if command -v sudo >/dev/null 2>&1; then
@@ -76,7 +69,6 @@ install_node() {
         return 0
     fi
 
-    # Try yum (RHEL / CentOS / Amazon Linux)
     if command -v yum >/dev/null 2>&1; then
         info "Installing Node.js via yum..."
         if command -v sudo >/dev/null 2>&1; then
@@ -91,7 +83,6 @@ install_node() {
 }
 
 main() {
-    # Banner — matches the one in src/commands/init.ts
     WHITE='' BLUE_FG=''
     if [ -t 1 ]; then
         WHITE='\033[37m'
@@ -112,7 +103,6 @@ main() {
     printf "\n"
     printf "${DIM}  CLI Installer${RESET}\n\n"
 
-    # ── Detect or install Node.js ────────────────────────────────────
     NODE_VERSION=$(find_node) || {
         install_node || error "Node.js ${MIN_NODE_MAJOR}+ is required but could not be installed.
   Install it from https://nodejs.org/ and try again."
@@ -121,7 +111,6 @@ main() {
     }
     info "Found Node.js v${NODE_VERSION}"
 
-    # ── Pick the best package manager ────────────────────────────────
     if command -v npm >/dev/null 2>&1; then
         PM="npm"
     elif command -v yarn >/dev/null 2>&1; then
@@ -132,7 +121,6 @@ main() {
         error "No package manager found (npm, yarn, or pnpm). Install npm and try again."
     fi
 
-    # ── Install the CLI globally ─────────────────────────────────────
     info "Installing ${PACKAGE_NAME} with ${PM}..."
     case "$PM" in
         npm)  npm install -g "$PACKAGE_NAME" ;;
@@ -140,7 +128,6 @@ main() {
         pnpm) pnpm add -g "$PACKAGE_NAME" ;;
     esac
 
-    # ── Verify installation ──────────────────────────────────────────
     if command -v "$COMMAND_NAME" >/dev/null 2>&1; then
         installed_version=$("$COMMAND_NAME" --version 2>/dev/null || echo "unknown")
         printf "\n${GREEN}${BOLD}Success!${RESET} ${PACKAGE_NAME} ${installed_version} is installed.\n"
@@ -150,7 +137,6 @@ main() {
     else
         printf "\n${GREEN}${BOLD}Installed!${RESET} You may need to restart your shell or add the npm global bin directory to your PATH.\n"
 
-        # Help the user find the global bin path
         npm_bin=$(npm bin -g 2>/dev/null) || true
         if [ -n "$npm_bin" ] && ! echo "$PATH" | tr ':' '\n' | grep -qx "$npm_bin"; then
             warn "${npm_bin} is not in your PATH. Add it with:"
