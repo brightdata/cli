@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-PACKAGE_NAME="brightdata-cli"
+PACKAGE_NAME="@brightdata/cli"
 COMMAND_NAME="brightdata"
 COMMAND_ALIAS="bdata"
 MIN_NODE_MAJOR=18
