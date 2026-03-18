@@ -10,7 +10,6 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/%40brightdata%2Fcli"><img src="https://img.shields.io/npm/v/%40brightdata%2Fcli?color=black&label=npm" alt="npm version" /></a>
-  <a href="https://www.npmjs.com/package/%40brightdata%2Fcli"><img src="https://img.shields.io/npm/dm/%40brightdata%2Fcli?color=black&label=downloads" alt="downloads" /></a>
   <img src="https://img.shields.io/badge/node-%3E%3D18-black" alt="node requirement" />
   <img src="https://img.shields.io/badge/license-ISC-black" alt="license" />
 </p>
