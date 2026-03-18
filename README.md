@@ -60,17 +60,31 @@
 
 ## Installation
 
+> **Requires [Node.js](https://nodejs.org/) ≥ 20**
+
+### macOS / Linux
+
+```bash
+curl -fsSL https://cli.brightdata.com/install.sh | sh
+```
+
+### Windows
+
+```powershell
+npm install -g @brightdata/cli
+```
+
+### Or install manually on any platform
+
 ```bash
 npm install -g @brightdata/cli
 ```
 
-Or run without installing:
+You can also run without installing:
 
 ```bash
 npx --yes --package @brightdata/cli brightdata <command>
 ```
-
-> **Requires Node.js ≥ 20.0.0**
 
 ---
 
