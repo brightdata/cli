@@ -52,6 +52,42 @@ const BRIGHTDATA_SKILLS: BrightDataSkill[] = [
         githubPath: 'brightdata/skills/bright-data-best-practices',
         repoPath: 'skills/bright-data-best-practices',
     },
+    {
+        name: 'brightdata-cli',
+        description: 'Use the Bright Data CLI to scrape websites, search '
+            +'engines, and extract structured data from the terminal',
+        skillMdUrl: 'https://raw.githubusercontent.com/brightdata/skills/'
+            +'main/skills/brightdata-cli/SKILL.md',
+        githubPath: 'brightdata/skills/brightdata-cli',
+        repoPath: 'skills/brightdata-cli',
+    },
+    {
+        name: 'design-mirror',
+        description: 'Extract design tokens from any website and apply '
+            +'colors, typography, and spacing to your codebase',
+        skillMdUrl: 'https://raw.githubusercontent.com/brightdata/skills/'
+            +'main/skills/design-mirror/SKILL.md',
+        githubPath: 'brightdata/skills/design-mirror',
+        repoPath: 'skills/design-mirror',
+    },
+    {
+        name: 'python-sdk-best-practices',
+        description: 'Best practices for writing Bright Data Python SDK '
+            +'code with async/await patterns',
+        skillMdUrl: 'https://raw.githubusercontent.com/brightdata/skills/'
+            +'main/skills/python-sdk-best-practices/SKILL.md',
+        githubPath: 'brightdata/skills/python-sdk-best-practices',
+        repoPath: 'skills/python-sdk-best-practices',
+    },
+    {
+        name: 'scraper-builder',
+        description: 'Build production-ready web scrapers using Bright Data '
+            +'APIs with site analysis and pagination handling',
+        skillMdUrl: 'https://raw.githubusercontent.com/brightdata/skills/'
+            +'main/skills/scraper-builder/SKILL.md',
+        githubPath: 'brightdata/skills/scraper-builder',
+        repoPath: 'skills/scraper-builder',
+    },
 ]
 
 export {BRIGHTDATA_SKILLS}
