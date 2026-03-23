@@ -12,9 +12,13 @@ import {init_command} from './commands/init';
 import {version_command} from './commands/version';
 import {skill_command} from './commands/skill';
 import {budget_command} from './commands/budget';
+import {add_mcp_command} from './commands/add-mcp';
 import packageJson from '../package.json';
 
 const program = new Command();
+const add_command = new Command('add')
+    .description('Add Bright Data integrations to supported coding agents')
+    .addCommand(add_mcp_command);
 
 program
     .name('brightdata')
@@ -38,6 +42,6 @@ program.addCommand(init_command);
 program.addCommand(version_command);
 program.addCommand(skill_command);
 program.addCommand(budget_command);
-
+program.addCommand(add_command);
 
 program.parse(process.argv);

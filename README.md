@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/%40brightdata%2Fcli"><img src="https://img.shields.io/npm/v/%40brightdata%2Fcli?color=black&label=npm" alt="npm version" /></a>
   <img src="https://img.shields.io/badge/node-%3E%3D20-black" alt="node requirement" />
-  <img src="https://img.shields.io/badge/license-ISC-black" alt="license" />
+  <img src="https://img.shields.io/badge/license-MIT-black" alt="license" />
 </p>
 
 ---
@@ -28,6 +28,7 @@
 | `brightdata zones` | List and inspect your Bright Data proxy zones |
 | `brightdata budget` | View account balance and per-zone cost & bandwidth |
 | `brightdata skill` | Install Bright Data AI agent skills into your coding agent |
+| `brightdata add mcp` | Add the Bright Data MCP server to Claude Code, Cursor, or Codex |
 | `brightdata config` | Manage CLI configuration |
 | `brightdata init` | Interactive setup wizard |
 
@@ -47,6 +48,7 @@
   - [zones](#zones)
   - [budget](#budget)
   - [skill](#skill)
+  - [add mcp](#add-mcp)
   - [config](#config)
   - [login / logout](#login--logout)
 - [Configuration](#configuration)
@@ -105,6 +107,9 @@ brightdata pipelines linkedin_person_profile "https://linkedin.com/in/username"
 
 # 5. Check your account balance
 brightdata budget
+
+# 6. Install the Bright Data MCP server into your coding agent
+brightdata add mcp
 ```
 
 ---
@@ -130,6 +135,8 @@ On first login the CLI checks for required zones (`cli_unlocker`, `cli_browser`)
 # Clear saved credentials
 brightdata logout
 ```
+
+`brightdata add mcp` uses the API key stored by `brightdata login`. It does not currently read `BRIGHTDATA_API_KEY` or the global `--api-key` flag, so log in first before using it.
 
 ---
 
@@ -394,6 +401,54 @@ brightdata skill add scrape
 # See what's available
 brightdata skill list
 ```
+
+---
+
+### `add mcp`
+
+Write a Bright Data MCP server entry into Claude Code, Cursor, or Codex config files using the API key already stored by `brightdata login`.
+
+```bash
+brightdata add mcp                               # Interactive agent + scope prompts
+brightdata add mcp --agent claude-code --global
+brightdata add mcp --agent claude-code,cursor --project
+brightdata add mcp --agent codex --global
+```
+
+| Flag | Description |
+|---|---|
+| `--agent <agents>` | Comma-separated targets: `claude-code,cursor,codex` |
+| `--global` | Install to the agent's global config file |
+| `--project` | Install to the current project's config file |
+
+**Config targets**
+
+| Agent | Global path | Project path |
+|---|---|---|
+| Claude Code | `~/.claude.json` | `.claude/settings.json` |
+| Cursor | `~/.cursor/mcp.json` | `.cursor/mcp.json` |
+| Codex | `$CODEX_HOME/mcp.json` or `~/.codex/mcp.json` | Not supported |
+
+The command writes the MCP server under `mcpServers["bright-data"]`:
+
+```json
+{
+  "mcpServers": {
+    "bright-data": {
+      "command": "npx",
+      "args": ["@brightdata/mcp"],
+      "env": {
+        "API_TOKEN": "<stored-api-key>"
+      }
+    }
+  }
+}
+```
+
+Behavior notes:
+- Existing config is preserved; only `mcpServers["bright-data"]` is added or replaced.
+- If the target config contains invalid JSON, the CLI warns and offers to overwrite it in interactive mode.
+- In non-interactive mode, pass both `--agent` and the appropriate scope flag to skip prompts.
 
 ---
 
