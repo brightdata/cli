@@ -60,6 +60,7 @@
         "commander": "^14.0.2",
         "open": "^11.0.0",
         "picocolors": "^1.1.1",
+        "playwright-core": "^1.58.2",
         "xdg-basedir": "^5.1.0"
     }
 }
