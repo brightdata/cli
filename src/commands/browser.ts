@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import {Command} from 'commander';
 import {DEFAULT_DAEMON_IDLE_TIMEOUT_MS} from '../browser/daemon';
 import {
@@ -25,10 +26,12 @@ import type {Print_opts} from '../utils/output';
 type Browser_cli_opts = {
     all?: boolean;
     apiKey?: string;
+    base64?: boolean;
     compact?: boolean;
     country?: string;
     daemonDir?: string;
     depth?: string;
+    fullPage?: boolean;
     headed?: boolean;
     idleTimeout?: string;
     interactive?: boolean;
@@ -76,6 +79,13 @@ type Browser_daemon_snapshot = {
     url?: string|null;
 };
 
+type Browser_daemon_screenshot = {
+    base64?: string;
+    full_page?: boolean;
+    mime_type?: string;
+    path?: string;
+};
+
 type Browser_flag_definition = {
     key: keyof Browser_cli_opts;
     label: string;
@@ -120,6 +130,19 @@ const SNAPSHOT_ONLY_FLAGS: Browser_flag_definition[] = [
         key: 'selector',
         label: '--selector',
         message: 'Use it with "brightdata browser snapshot".',
+    },
+];
+
+const SCREENSHOT_ONLY_FLAGS: Browser_flag_definition[] = [
+    {
+        key: 'base64',
+        label: '--base64',
+        message: 'Use it with "brightdata browser screenshot".',
+    },
+    {
+        key: 'fullPage',
+        label: '--full-page',
+        message: 'Use it with "brightdata browser screenshot".',
     },
 ];
 
@@ -175,6 +198,21 @@ const parse_snapshot_selector = (raw: string|undefined): string|undefined=>{
     return normalized;
 };
 
+const parse_screenshot_path = (
+    raw: string|undefined,
+    label = 'Screenshot path',
+): string|undefined=>{
+    if (raw === undefined)
+        return undefined;
+    const normalized = raw.trim();
+    if (!normalized)
+    {
+        fail(`${label} cannot be empty.`);
+        return undefined;
+    }
+    return path.resolve(normalized);
+};
+
 const has_flag_value = (value: unknown): boolean=>{
     if (typeof value == 'boolean')
         return value;
@@ -206,6 +244,7 @@ const assert_standard_session_flags = (
 )=>{
     assert_flags_not_set(opts, command_name, OPEN_ONLY_FLAGS);
     assert_flags_not_set(opts, command_name, SNAPSHOT_ONLY_FLAGS);
+    assert_flags_not_set(opts, command_name, SCREENSHOT_ONLY_FLAGS);
     assert_flags_not_set(opts, command_name, UNIMPLEMENTED_FLAGS);
 };
 
@@ -214,6 +253,16 @@ const assert_snapshot_flags = (
     command_name: string,
 )=>{
     assert_flags_not_set(opts, command_name, OPEN_ONLY_FLAGS);
+    assert_flags_not_set(opts, command_name, SCREENSHOT_ONLY_FLAGS);
+    assert_flags_not_set(opts, command_name, UNIMPLEMENTED_FLAGS);
+};
+
+const assert_screenshot_flags = (
+    opts: Browser_cli_opts,
+    command_name: string,
+)=>{
+    assert_flags_not_set(opts, command_name, OPEN_ONLY_FLAGS);
+    assert_flags_not_set(opts, command_name, SNAPSHOT_ONLY_FLAGS);
     assert_flags_not_set(opts, command_name, UNIMPLEMENTED_FLAGS);
 };
 
@@ -249,6 +298,32 @@ const get_snapshot_params = (opts: Browser_cli_opts)=>({
     depth: parse_snapshot_depth(opts.depth),
     interactive: opts.interactive === true,
     selector: parse_snapshot_selector(opts.selector),
+});
+
+const is_raw_screenshot_output_path = (
+    file_path: string|undefined,
+    opts: Browser_cli_opts,
+): boolean=>{
+    return file_path === undefined
+        && !!opts.output
+        && !opts.base64
+        && !opts.json
+        && !opts.pretty;
+};
+
+const get_screenshot_params = (
+    file_path: string|undefined,
+    opts: Browser_cli_opts,
+)=>({
+    base64: opts.base64 === true,
+    full_page: opts.fullPage === true,
+    path: parse_screenshot_path(file_path, 'Screenshot path')
+        ?? parse_screenshot_path(
+            is_raw_screenshot_output_path(file_path, opts)
+                ? opts.output
+                : undefined,
+            'Screenshot output path'
+        ),
 });
 
 const get_action_opts = (
@@ -352,6 +427,7 @@ const list_browser_sessions = async(
 
 const handle_browser_open = async(url: string, opts: Browser_cli_opts)=>{
     assert_flags_not_set(opts, 'brightdata browser open', SNAPSHOT_ONLY_FLAGS);
+    assert_flags_not_set(opts, 'brightdata browser open', SCREENSHOT_ONLY_FLAGS);
     assert_flags_not_set(opts, 'brightdata browser open', UNIMPLEMENTED_FLAGS);
     const api_key = ensure_authenticated(opts.apiKey);
     const session_name = get_session_name(opts.session);
@@ -426,6 +502,40 @@ const handle_browser_snapshot = async(opts: Browser_cli_opts)=>{
     }
 
     print(data.snapshot ?? '', {output: opts.output});
+};
+
+const handle_browser_screenshot = async(
+    file_path: string|undefined,
+    opts: Browser_cli_opts,
+)=>{
+    assert_screenshot_flags(opts, 'brightdata browser screenshot');
+    const session_name = get_session_name(opts.session);
+    await ensure_active_session(session_name, opts);
+    const data = await send_browser_action(
+        session_name,
+        'screenshot',
+        opts,
+        get_screenshot_params(file_path, opts),
+    ) as Browser_daemon_screenshot;
+
+    if (opts.json || opts.pretty)
+    {
+        print(data, get_print_opts(opts));
+        return;
+    }
+
+    if (opts.base64)
+    {
+        print(data.base64 ?? '', {output: opts.output});
+        return;
+    }
+
+    print(
+        data.path ?? '',
+        is_raw_screenshot_output_path(file_path, opts)
+            ? {}
+            : {output: opts.output}
+    );
 };
 
 const handle_browser_status = async(opts: Browser_cli_opts)=>{
@@ -573,6 +683,8 @@ const create_browser_command = ()=>{
         .option('--interactive', 'Include only interactive elements as a flat list')
         .option('--depth <n>', 'Limit snapshot depth to a non-negative integer')
         .option('--selector <sel>', 'Scope snapshots to a CSS selector subtree')
+        .option('--full-page', 'Capture the full scrollable page in screenshots')
+        .option('--base64', 'Include base64-encoded screenshot data in the response')
         .option(
             '--timeout <ms>',
             `Command timeout in milliseconds (default: ${DEFAULT_IPC_TIMEOUT_MS})`,
@@ -598,6 +710,14 @@ const create_browser_command = ()=>{
         'Capture a text snapshot of the current page',
         handle_browser_snapshot,
     ));
+    browser.addCommand(
+        new Command('screenshot')
+            .description('Capture a PNG screenshot of the current page')
+            .argument('[path]', 'Where to save the PNG screenshot')
+            .action(async(file_path, opts, command)=>
+                handle_browser_screenshot(file_path, get_action_opts(opts, command))
+            )
+    );
     browser.addCommand(create_session_command(
         'back',
         'Navigate back in the active browser session',
@@ -660,6 +780,7 @@ export {
     handle_browser_network,
     handle_browser_open,
     handle_browser_reload,
+    handle_browser_screenshot,
     handle_browser_sessions,
     handle_browser_snapshot,
     handle_browser_status,

@@ -73,6 +73,7 @@ import {
     handle_browser_cookies,
     handle_browser_open,
     handle_browser_reload,
+    handle_browser_screenshot,
     handle_browser_sessions,
     handle_browser_snapshot,
     handle_browser_status,
@@ -212,6 +213,39 @@ describe('commands/browser', ()=>{
         );
         expect(mocks.print).toHaveBeenCalledWith(
             'Page: Example Domain\nURL: https://example.com\n\n- link "Pricing" [ref=e1]',
+            {output: undefined}
+        );
+    });
+
+    it('captures a screenshot for an active browser session', async()=>{
+        mocks.send_command.mockResolvedValue({
+            success: true,
+            data: {
+                full_page: true,
+                mime_type: 'image/png',
+                path: '/tmp/browser-shot.png',
+            },
+        });
+
+        await handle_browser_screenshot('/tmp/browser-shot.png', {
+            fullPage: true,
+            session: 'shop',
+        });
+
+        expect(mocks.send_command).toHaveBeenCalledWith(
+            'shop',
+            expect.objectContaining({
+                action: 'screenshot',
+                params: {
+                    base64: false,
+                    full_page: true,
+                    path: '/tmp/browser-shot.png',
+                },
+            }),
+            {daemon_dir: undefined, timeout_ms: undefined}
+        );
+        expect(mocks.print).toHaveBeenCalledWith(
+            '/tmp/browser-shot.png',
             {output: undefined}
         );
     });
@@ -454,6 +488,52 @@ describe('commands/browser', ()=>{
         );
     });
 
+    it('parses screenshot flags and forwards the screenshot params', async()=>{
+        mocks.send_command.mockResolvedValue({
+            success: true,
+            data: {
+                base64: 'aW1hZ2U=',
+                full_page: true,
+                mime_type: 'image/png',
+                path: '/tmp/browser-shot.png',
+            },
+        });
+        const command = create_browser_command();
+        command.exitOverride();
+
+        await command.parseAsync([
+            'screenshot',
+            '/tmp/browser-shot.png',
+            '--session',
+            'shop',
+            '--full-page',
+            '--base64',
+            '--json',
+        ], {from: 'user'});
+
+        expect(mocks.send_command).toHaveBeenCalledWith(
+            'shop',
+            expect.objectContaining({
+                action: 'screenshot',
+                params: {
+                    base64: true,
+                    full_page: true,
+                    path: '/tmp/browser-shot.png',
+                },
+            }),
+            {daemon_dir: undefined, timeout_ms: undefined}
+        );
+        expect(mocks.print).toHaveBeenCalledWith(
+            {
+                base64: 'aW1hZ2U=',
+                full_page: true,
+                mime_type: 'image/png',
+                path: '/tmp/browser-shot.png',
+            },
+            {json: true, output: undefined, pretty: undefined}
+        );
+    });
+
     it('rejects open-only flags on status through browser-group parsing', async()=>{
         const command = create_browser_command();
         command.exitOverride();
@@ -493,6 +573,20 @@ describe('commands/browser', ()=>{
             '#checkout',
         ], {from: 'user'})).rejects.toThrow(
             'fail:--selector is not supported by "brightdata browser status".'
+        );
+
+        expect(mocks.send_command).not.toHaveBeenCalled();
+    });
+
+    it('rejects screenshot-only flags outside the screenshot command', async()=>{
+        const command = create_browser_command();
+        command.exitOverride();
+
+        await expect(command.parseAsync([
+            'status',
+            '--full-page',
+        ], {from: 'user'})).rejects.toThrow(
+            'fail:--full-page is not supported by "brightdata browser status".'
         );
 
         expect(mocks.send_command).not.toHaveBeenCalled();

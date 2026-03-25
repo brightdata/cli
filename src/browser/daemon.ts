@@ -5,6 +5,7 @@ import path from 'path';
 import {chromium} from 'playwright-core';
 import {clear_connection_state, ensure_connected as ensure_browser_connected} from './connection';
 import {parse_daemon_request} from './ipc';
+import {take_screenshot} from './screenshot';
 import {capture_snapshot} from './snapshot';
 import type {
     Browser,
@@ -505,6 +506,8 @@ class BrowserDaemon {
             return {alive: true, connected: this.state.connected};
         case 'reload':
             return this.handle_reload();
+        case 'screenshot':
+            return this.handle_screenshot(request.params);
         case 'snapshot':
             return this.handle_snapshot(request.params);
         case 'status':
@@ -618,6 +621,39 @@ class BrowserDaemon {
             title: result.title,
             url: result.url,
         };
+    }
+
+    private async handle_screenshot(params: Json_object|undefined){
+        const base64 = params?.['base64'];
+        const full_page = params?.['full_page'];
+        const file_path = params?.['path'];
+
+        if (base64 !== undefined && typeof base64 != 'boolean')
+        {
+            throw new Error(
+                'Screenshot "base64" parameter must be a boolean when provided.'
+            );
+        }
+        if (full_page !== undefined && typeof full_page != 'boolean')
+        {
+            throw new Error(
+                'Screenshot "full_page" parameter must be a boolean when provided.'
+            );
+        }
+        if (file_path !== undefined
+            && (typeof file_path != 'string' || !file_path.trim()))
+        {
+            throw new Error(
+                'Screenshot "path" parameter must be a non-empty string when provided.'
+            );
+        }
+
+        const page = await this.ensure_connected();
+        return await take_screenshot(page, {
+            base64: base64 === true,
+            full_page: full_page === true,
+            path: typeof file_path == 'string' ? file_path.trim() : undefined,
+        });
     }
 
     private handle_network(){

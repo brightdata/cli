@@ -45,6 +45,7 @@ class Mock_page extends EventEmitter {
     private current_title = 'Blank';
     private current_url = 'about:blank';
     private mock_context: Mock_context|null = null;
+    private screenshot_opts: {fullPage?: boolean}|null = null;
 
     constructor(mock_context?: Mock_context){
         super();
@@ -78,6 +79,13 @@ class Mock_page extends EventEmitter {
     async reload(){
         this.current_title = `Title for ${this.current_url}`;
         return {status: ()=>200};
+    }
+
+    async screenshot(opts?: {fullPage?: boolean}){
+        this.screenshot_opts = opts ?? {};
+        return Buffer.from(
+            opts?.fullPage ? 'full-page-image' : 'viewport-image'
+        );
     }
 
     async evaluate(_fn: unknown, arg: {attr_name: string; selector?: string}){
@@ -142,6 +150,10 @@ class Mock_page extends EventEmitter {
     close_page(){
         this.closed = true;
         this.emit('close');
+    }
+
+    last_screenshot_opts(){
+        return this.screenshot_opts;
     }
 }
 
@@ -532,6 +544,44 @@ describe('browser/daemon', ()=>{
             success: true,
             data: {cookies},
         });
+
+        await daemon.stop();
+    });
+
+    it('captures screenshots and returns the saved file path', async()=>{
+        const mock_browser = new Mock_browser();
+        const connect_over_cdp = vi.fn(async()=>mock_browser as unknown as Browser);
+        const daemon = new BrowserDaemon({
+            cdp_endpoint: 'wss://example.test',
+            daemon_dir: tmp_dir,
+            idle_timeout_ms: 0,
+            session_name: 'screenshot-actions',
+        }, {connect_over_cdp});
+
+        const output_path = path.join(tmp_dir, 'captures', 'page.png');
+        const screenshot = await daemon.handle_request({
+            id: 'screenshot-1',
+            action: 'screenshot',
+            params: {
+                base64: true,
+                full_page: true,
+                path: output_path,
+            },
+        });
+        expect(screenshot).toMatchObject({
+            id: 'screenshot-1',
+            success: true,
+            data: {
+                base64: Buffer.from('full-page-image').toString('base64'),
+                full_page: true,
+                mime_type: 'image/png',
+                path: output_path,
+            },
+        });
+
+        const page = mock_browser.first_context().first_page();
+        expect(page.last_screenshot_opts()).toEqual({fullPage: true});
+        expect(fs.readFileSync(output_path, 'utf8')).toBe('full-page-image');
 
         await daemon.stop();
     });
