@@ -5,6 +5,7 @@ import path from 'path';
 import {chromium} from 'playwright-core';
 import {clear_connection_state, ensure_connected as ensure_browser_connected} from './connection';
 import {parse_daemon_request} from './ipc';
+import {capture_snapshot} from './snapshot';
 import type {
     Browser,
     BrowserContext,
@@ -487,15 +488,25 @@ class BrowserDaemon {
     private async execute_request(request: Daemon_request): Promise<unknown> {
         switch (request.action)
         {
+        case 'back':
+            return this.handle_history_navigation('back');
         case 'close':
             await this.close_browser();
             return {closed: true};
+        case 'cookies':
+            return this.handle_cookies();
+        case 'forward':
+            return this.handle_history_navigation('forward');
         case 'navigate':
             return this.handle_navigate(request.params);
         case 'network':
             return this.handle_network();
         case 'ping':
             return {alive: true, connected: this.state.connected};
+        case 'reload':
+            return this.handle_reload();
+        case 'snapshot':
+            return this.handle_snapshot(request.params);
         case 'status':
             return this.handle_status();
         default:
@@ -515,10 +526,97 @@ class BrowserDaemon {
         const page = await this.ensure_connected();
         this.state.dom_refs.clear();
         const response = await page.goto(url, {waitUntil: 'load'});
+        return this.create_navigation_result(page, response);
+    }
+
+    private async handle_history_navigation(direction: 'back'|'forward'){
+        const page = await this.ensure_connected();
+        this.state.dom_refs.clear();
+        const response = direction == 'back'
+            ? await page.goBack({waitUntil: 'load'})
+            : await page.goForward({waitUntil: 'load'});
+        return this.create_navigation_result(page, response);
+    }
+
+    private async handle_reload(){
+        const page = await this.ensure_connected();
+        this.state.dom_refs.clear();
+        const response = await page.reload({waitUntil: 'load'});
+        return this.create_navigation_result(page, response);
+    }
+
+    private async handle_cookies(){
+        const page = await this.ensure_connected();
+        return {
+            cookies: await page.context().cookies(),
+        };
+    }
+
+    private async create_navigation_result(
+        page: Page,
+        response: Playwright_response|null,
+    ){
         return {
             status: response?.status() ?? null,
             title: await page.title(),
             url: page.url(),
+        };
+    }
+
+    private async handle_snapshot(params: Json_object|undefined){
+        const compact = params?.['compact'];
+        const depth = params?.['depth'];
+        const interactive = params?.['interactive'];
+        const selector = params?.['selector'];
+
+        if (compact !== undefined && typeof compact != 'boolean')
+        {
+            throw new Error(
+                'Snapshot "compact" parameter must be a boolean when provided.'
+            );
+        }
+        if (interactive !== undefined && typeof interactive != 'boolean')
+        {
+            throw new Error(
+                'Snapshot "interactive" parameter must be a boolean when provided.'
+            );
+        }
+        if (depth !== undefined
+            && (typeof depth != 'number' || !Number.isInteger(depth) || depth < 0))
+        {
+            throw new Error(
+                'Snapshot "depth" parameter must be a non-negative integer when provided.'
+            );
+        }
+        if (selector !== undefined
+            && (typeof selector != 'string' || !selector.trim()))
+        {
+            throw new Error(
+                'Snapshot "selector" parameter must be a non-empty string when provided.'
+            );
+        }
+
+        const page = await this.ensure_connected();
+        const result = await capture_snapshot(page, {
+            compact: compact === true,
+            depth: depth as number|undefined,
+            interactive: interactive === true,
+            selector: typeof selector == 'string' ? selector.trim() : undefined,
+        });
+
+        this.state.dom_refs.clear();
+        for (const entry of result.refs)
+            this.state.dom_refs.set(entry.ref, entry.selector);
+
+        return {
+            compact: result.compact,
+            depth: result.depth,
+            interactive: result.interactive,
+            ref_count: result.refs.length,
+            selector: result.selector,
+            snapshot: result.snapshot,
+            title: result.title,
+            url: result.url,
         };
     }
 

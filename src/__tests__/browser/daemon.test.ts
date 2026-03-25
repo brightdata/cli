@@ -44,11 +44,87 @@ class Mock_page extends EventEmitter {
     private closed = false;
     private current_title = 'Blank';
     private current_url = 'about:blank';
+    private mock_context: Mock_context|null = null;
 
-    async goto(url: string){
+    constructor(mock_context?: Mock_context){
+        super();
+        this.mock_context = mock_context ?? null;
+    }
+
+    set_context(mock_context: Mock_context){
+        this.mock_context = mock_context;
+    }
+
+    private set_location(url: string){
         this.current_url = url;
         this.current_title = `Title for ${url}`;
+    }
+
+    async goto(url: string){
+        this.set_location(url);
         return {status: ()=>200};
+    }
+
+    async goBack(){
+        this.set_location('https://example.com/back');
+        return {status: ()=>200};
+    }
+
+    async goForward(){
+        this.set_location('https://example.com/forward');
+        return {status: ()=>200};
+    }
+
+    async reload(){
+        this.current_title = `Title for ${this.current_url}`;
+        return {status: ()=>200};
+    }
+
+    async evaluate(_fn: unknown, arg: {attr_name: string; selector?: string}){
+        return {
+            nodes: [
+                {
+                    children: [],
+                    level: 1,
+                    name: 'Welcome',
+                    role: 'heading',
+                },
+                {
+                    children: [
+                        {
+                            children: [],
+                            interactive: true,
+                            name: 'Pricing',
+                            ref: 'e1',
+                            role: 'link',
+                        },
+                    ],
+                    role: 'navigation',
+                },
+                {
+                    children: [
+                        {
+                            children: [],
+                            interactive: true,
+                            name: 'Buy',
+                            ref: 'e2',
+                            role: 'button',
+                        },
+                    ],
+                    role: 'main',
+                },
+            ],
+            refs: [
+                {ref: 'e1', selector: `[${arg.attr_name}="e1"]`},
+                {ref: 'e2', selector: `[${arg.attr_name}="e2"]`},
+            ],
+        };
+    }
+
+    context(){
+        if (!this.mock_context)
+            throw new Error('Mock page has no context.');
+        return this.mock_context as unknown as BrowserContext;
     }
 
     isClosed(){
@@ -70,18 +146,35 @@ class Mock_page extends EventEmitter {
 }
 
 class Mock_context extends EventEmitter {
+    private readonly mock_cookies: Array<Record<string, unknown>>;
     private readonly mock_pages: Mock_page[];
 
-    constructor(mock_pages: Mock_page[] = [new Mock_page()]){
+    constructor(
+        mock_pages: Mock_page[] = [],
+        mock_cookies: Array<Record<string, unknown>> = [],
+    ){
         super();
-        this.mock_pages = mock_pages;
+        this.mock_cookies = mock_cookies;
+        this.mock_pages = [];
+        const pages = mock_pages.length ? mock_pages : [new Mock_page()];
+        for (const page of pages)
+            this.attach_page(page);
+    }
+
+    private attach_page(page: Mock_page){
+        page.set_context(this);
+        this.mock_pages.push(page);
     }
 
     async newPage(){
-        const page = new Mock_page();
+        const page = new Mock_page(this);
         this.mock_pages.push(page);
         this.emit('page', page as unknown as Page);
         return page as unknown as Page;
+    }
+
+    async cookies(){
+        return this.mock_cookies;
     }
 
     pages(){
@@ -311,6 +404,133 @@ describe('browser/daemon', ()=>{
                 current_title: null,
                 current_url: null,
             },
+        });
+
+        await daemon.stop();
+    });
+
+    it('captures snapshot text and refreshes daemon DOM refs', async()=>{
+        const mock_browser = new Mock_browser();
+        const connect_over_cdp = vi.fn(async()=>mock_browser as unknown as Browser);
+        const daemon = new BrowserDaemon({
+            cdp_endpoint: 'wss://example.test',
+            daemon_dir: tmp_dir,
+            idle_timeout_ms: 0,
+            session_name: 'snapshot-actions',
+        }, {connect_over_cdp});
+
+        await daemon.handle_request({
+            id: 'nav-snapshot',
+            action: 'navigate',
+            params: {url: 'https://example.com'},
+        });
+
+        const snapshot = await daemon.handle_request({
+            id: 'snapshot-1',
+            action: 'snapshot',
+            params: {
+                compact: true,
+                depth: 1,
+                selector: '#checkout',
+            },
+        });
+        expect(snapshot).toMatchObject({
+            id: 'snapshot-1',
+            success: true,
+            data: {
+                compact: true,
+                depth: 1,
+                interactive: false,
+                ref_count: 2,
+                selector: '#checkout',
+                title: 'Title for https://example.com',
+                url: 'https://example.com',
+            },
+        });
+        expect((snapshot.data as {snapshot: string}).snapshot).toContain(
+            '- navigation'
+        );
+        expect((snapshot.data as {snapshot: string}).snapshot).toContain(
+            'link "Pricing" [ref=e1]'
+        );
+        expect((snapshot.data as {snapshot: string}).snapshot).toContain(
+            'button "Buy" [ref=e2]'
+        );
+        expect(daemon.state.dom_refs.get('e1')).toBe('[data-bd-ref="e1"]');
+        expect(daemon.state.dom_refs.get('e2')).toBe('[data-bd-ref="e2"]');
+
+        await daemon.stop();
+    });
+
+    it('supports back, forward, reload, and cookies actions', async()=>{
+        const cookies = [{name: 'session', value: 'abc'}];
+        const mock_browser = new Mock_browser([
+            new Mock_context([], cookies),
+        ]);
+        const connect_over_cdp = vi.fn(async()=>mock_browser as unknown as Browser);
+        const daemon = new BrowserDaemon({
+            cdp_endpoint: 'wss://example.test',
+            daemon_dir: tmp_dir,
+            idle_timeout_ms: 0,
+            session_name: 'navigation-actions',
+        }, {connect_over_cdp});
+
+        await daemon.handle_request({
+            id: 'nav-seed',
+            action: 'navigate',
+            params: {url: 'https://example.com'},
+        });
+
+        const back = await daemon.handle_request({
+            id: 'back-1',
+            action: 'back',
+        });
+        expect(back).toMatchObject({
+            id: 'back-1',
+            success: true,
+            data: {
+                status: 200,
+                title: 'Title for https://example.com/back',
+                url: 'https://example.com/back',
+            },
+        });
+
+        const forward = await daemon.handle_request({
+            id: 'forward-1',
+            action: 'forward',
+        });
+        expect(forward).toMatchObject({
+            id: 'forward-1',
+            success: true,
+            data: {
+                status: 200,
+                title: 'Title for https://example.com/forward',
+                url: 'https://example.com/forward',
+            },
+        });
+
+        const reload = await daemon.handle_request({
+            id: 'reload-1',
+            action: 'reload',
+        });
+        expect(reload).toMatchObject({
+            id: 'reload-1',
+            success: true,
+            data: {
+                status: 200,
+                title: 'Title for https://example.com/forward',
+                url: 'https://example.com/forward',
+            },
+        });
+
+        const cookie_response = await daemon.handle_request({
+            id: 'cookies-1',
+            action: 'cookies',
+        });
+        expect(cookie_response).toMatchObject({
+            id: 'cookies-1',
+            success: true,
+            data: {cookies},
         });
 
         await daemon.stop();

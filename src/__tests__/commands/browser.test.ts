@@ -70,8 +70,11 @@ import {
     create_browser_command,
     get_browser_session_names,
     handle_browser_close,
+    handle_browser_cookies,
     handle_browser_open,
+    handle_browser_reload,
     handle_browser_sessions,
+    handle_browser_snapshot,
     handle_browser_status,
 } from '../../commands/browser';
 
@@ -128,6 +131,97 @@ describe('commands/browser', ()=>{
         expect(mocks.success).toHaveBeenCalledWith('Navigated to https://example.com');
         expect(mocks.info).toHaveBeenNthCalledWith(1, 'Title: Example Domain');
         expect(mocks.info).toHaveBeenNthCalledWith(2, 'URL: https://example.com');
+    });
+
+    it('reloads the current page for an active browser session', async()=>{
+        mocks.send_command.mockResolvedValue({
+            success: true,
+            data: {
+                status: 200,
+                title: 'Reloaded Example',
+                url: 'https://example.com',
+            },
+        });
+
+        await handle_browser_reload({session: 'shop'});
+
+        expect(mocks.send_command).toHaveBeenCalledWith(
+            'shop',
+            expect.objectContaining({action: 'reload'}),
+            {daemon_dir: undefined, timeout_ms: undefined}
+        );
+        expect(mocks.success).toHaveBeenCalledWith('Reloaded page.');
+        expect(mocks.info).toHaveBeenNthCalledWith(1, 'Title: Reloaded Example');
+        expect(mocks.info).toHaveBeenNthCalledWith(2, 'URL: https://example.com');
+    });
+
+    it('prints cookies for an active browser session', async()=>{
+        const cookies = [{name: 'session', value: 'abc'}];
+        mocks.send_command.mockResolvedValue({
+            success: true,
+            data: {cookies},
+        });
+
+        await handle_browser_cookies({session: 'shop', pretty: true});
+
+        expect(mocks.send_command).toHaveBeenCalledWith(
+            'shop',
+            expect.objectContaining({action: 'cookies'}),
+            {daemon_dir: undefined, timeout_ms: undefined}
+        );
+        expect(mocks.print).toHaveBeenCalledWith(
+            cookies,
+            {json: undefined, output: undefined, pretty: true}
+        );
+    });
+
+    it('prints snapshot text for an active browser session with extended snapshot params', async()=>{
+        mocks.send_command.mockResolvedValue({
+            success: true,
+            data: {
+                compact: true,
+                depth: 1,
+                interactive: false,
+                ref_count: 1,
+                selector: '#checkout',
+                snapshot: 'Page: Example Domain\nURL: https://example.com\n\n- link "Pricing" [ref=e1]',
+                title: 'Example Domain',
+                url: 'https://example.com',
+            },
+        });
+
+        await handle_browser_snapshot({
+            compact: true,
+            depth: '1',
+            selector: '#checkout',
+            session: 'shop',
+        });
+
+        expect(mocks.send_command).toHaveBeenCalledWith(
+            'shop',
+            expect.objectContaining({
+                action: 'snapshot',
+                params: {
+                    compact: true,
+                    depth: 1,
+                    interactive: false,
+                    selector: '#checkout',
+                },
+            }),
+            {daemon_dir: undefined, timeout_ms: undefined}
+        );
+        expect(mocks.print).toHaveBeenCalledWith(
+            'Page: Example Domain\nURL: https://example.com\n\n- link "Pricing" [ref=e1]',
+            {output: undefined}
+        );
+    });
+
+    it('rejects invalid snapshot depth before sending the command', async()=>{
+        await expect(handle_browser_snapshot({depth: 'abc', session: 'shop'})).rejects.toThrow(
+            'fail:Snapshot depth must be a non-negative integer.'
+        );
+
+        expect(mocks.send_command).not.toHaveBeenCalled();
     });
 
     it('fails status when the session is not active', async()=>{
@@ -269,6 +363,97 @@ describe('commands/browser', ()=>{
         expect(mocks.success).not.toHaveBeenCalled();
     });
 
+    it('parses the back subcommand and sends the browser action', async()=>{
+        mocks.send_command.mockResolvedValue({
+            success: true,
+            data: {
+                status: 200,
+                title: 'Back Page',
+                url: 'https://example.com/back',
+            },
+        });
+        const command = create_browser_command();
+        command.exitOverride();
+
+        await command.parseAsync([
+            'back',
+            '--session',
+            'shop',
+            '--json',
+        ], {from: 'user'});
+
+        expect(mocks.send_command).toHaveBeenCalledWith(
+            'shop',
+            expect.objectContaining({action: 'back'}),
+            {daemon_dir: undefined, timeout_ms: undefined}
+        );
+        expect(mocks.print).toHaveBeenCalledWith(
+            {
+                status: 200,
+                title: 'Back Page',
+                url: 'https://example.com/back',
+            },
+            {json: true, output: undefined, pretty: undefined}
+        );
+    });
+
+    it('parses snapshot flags and forwards the full snapshot param set', async()=>{
+        mocks.send_command.mockResolvedValue({
+            success: true,
+            data: {
+                compact: false,
+                depth: 2,
+                interactive: true,
+                ref_count: 1,
+                selector: '#checkout',
+                snapshot: 'Page: Example Domain\nURL: https://example.com\n\n- link "Pricing" [ref=e1]',
+                title: 'Example Domain',
+                url: 'https://example.com',
+            },
+        });
+        const command = create_browser_command();
+        command.exitOverride();
+
+        await command.parseAsync([
+            'snapshot',
+            '--session',
+            'shop',
+            '--interactive',
+            '--depth',
+            '2',
+            '--selector',
+            '#checkout',
+            '--json',
+        ], {from: 'user'});
+
+        expect(mocks.send_command).toHaveBeenCalledWith(
+            'shop',
+            expect.objectContaining({
+                action: 'snapshot',
+                params: {
+                    compact: false,
+                    depth: 2,
+                    interactive: true,
+                    selector: '#checkout',
+                },
+            }),
+            {daemon_dir: undefined, timeout_ms: undefined}
+        );
+        expect(mocks.print).toHaveBeenCalledWith(
+            {
+                compact: false,
+                depth: 2,
+                interactive: true,
+                ref_count: 1,
+                selector: '#checkout',
+                snapshot: 'Page: Example Domain\nURL: https://example.com\n\n- link "Pricing" [ref=e1]',
+                title: 'Example Domain',
+                url: 'https://example.com',
+            },
+            {json: true, output: undefined, pretty: undefined}
+        );
+    });
+
     it('rejects open-only flags on status through browser-group parsing', async()=>{
         const command = create_browser_command();
         command.exitOverride();
@@ -279,6 +464,35 @@ describe('commands/browser', ()=>{
             'us',
         ], {from: 'user'})).rejects.toThrow(
             'fail:--country is not supported by "brightdata browser status".'
+        );
+
+        expect(mocks.send_command).not.toHaveBeenCalled();
+    });
+
+    it('rejects compact mode outside the snapshot command', async()=>{
+        const command = create_browser_command();
+        command.exitOverride();
+
+        await expect(command.parseAsync([
+            'status',
+            '--compact',
+        ], {from: 'user'})).rejects.toThrow(
+            'fail:--compact is not supported by "brightdata browser status".'
+        );
+
+        expect(mocks.send_command).not.toHaveBeenCalled();
+    });
+
+    it('rejects selector mode outside the snapshot command', async()=>{
+        const command = create_browser_command();
+        command.exitOverride();
+
+        await expect(command.parseAsync([
+            'status',
+            '--selector',
+            '#checkout',
+        ], {from: 'user'})).rejects.toThrow(
+            'fail:--selector is not supported by "brightdata browser status".'
         );
 
         expect(mocks.send_command).not.toHaveBeenCalled();
