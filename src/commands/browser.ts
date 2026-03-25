@@ -2,6 +2,7 @@ import fs from 'fs';
 import {Command} from 'commander';
 import {DEFAULT_DAEMON_IDLE_TIMEOUT_MS} from '../browser/daemon';
 import {
+    DEFAULT_IPC_TIMEOUT_MS,
     DEFAULT_SESSION_NAME,
     get_daemon_base_dir,
     normalize_session_name,
@@ -24,8 +25,10 @@ import type {Print_opts} from '../utils/output';
 type Browser_cli_opts = {
     all?: boolean;
     apiKey?: string;
+    compact?: boolean;
     country?: string;
     daemonDir?: string;
+    headed?: boolean;
     idleTimeout?: string;
     json?: boolean;
     output?: string;
@@ -55,6 +58,43 @@ type Browser_daemon_network = {
     requests?: Array<Record<string, unknown>>;
 };
 
+type Browser_flag_definition = {
+    key: keyof Browser_cli_opts;
+    label: string;
+    message: string;
+};
+
+const OPEN_ONLY_FLAGS: Browser_flag_definition[] = [
+    {
+        key: 'country',
+        label: '--country',
+        message: 'Use it with "brightdata browser open" when starting a session.',
+    },
+    {
+        key: 'zone',
+        label: '--zone',
+        message: 'Use it with "brightdata browser open" when starting a session.',
+    },
+    {
+        key: 'idleTimeout',
+        label: '--idle-timeout',
+        message: 'Use it with "brightdata browser open" when starting a session.',
+    },
+];
+
+const UNIMPLEMENTED_FLAGS: Browser_flag_definition[] = [
+    {
+        key: 'compact',
+        label: '--compact',
+        message: 'Snapshot-style browser commands are not implemented yet.',
+    },
+    {
+        key: 'headed',
+        label: '--headed',
+        message: 'Headed browser mode is not implemented yet.',
+    },
+];
+
 const create_request_id = (action: string)=>
     `browser-${action}-${Date.now()}`;
 
@@ -72,6 +112,35 @@ const parse_timeout_ms = (
         return undefined;
     }
     return Math.floor(parsed);
+};
+
+const has_flag_value = (value: unknown): boolean=>{
+    if (typeof value == 'boolean')
+        return value;
+    if (typeof value == 'string')
+        return !!value.trim();
+    return value !== undefined && value !== null;
+};
+
+const assert_flags_not_set = (
+    opts: Browser_cli_opts,
+    command_name: string,
+    flags: Browser_flag_definition[],
+)=>{
+    for (const flag of flags)
+    {
+        if (!has_flag_value(opts[flag.key]))
+            continue;
+        fail(`${flag.label} is not supported by "${command_name}". ${flag.message}`);
+    }
+};
+
+const assert_open_session_flags = (
+    opts: Browser_cli_opts,
+    command_name: string,
+)=>{
+    assert_flags_not_set(opts, command_name, OPEN_ONLY_FLAGS);
+    assert_flags_not_set(opts, command_name, UNIMPLEMENTED_FLAGS);
 };
 
 const get_session_name = (session: string|undefined): string=>{
@@ -99,6 +168,14 @@ const get_print_opts = (opts: Browser_cli_opts): Print_opts=>({
 const get_ipc_opts = (opts: Browser_cli_opts)=>({
     daemon_dir: opts.daemonDir,
     timeout_ms: parse_timeout_ms(opts.timeout, 'Browser timeout'),
+});
+
+const get_action_opts = (
+    opts: Browser_cli_opts,
+    command: Command,
+): Browser_cli_opts=>({
+    ...(command.optsWithGlobals() as Browser_cli_opts),
+    ...opts,
 });
 
 const send_browser_action = async(
@@ -167,6 +244,7 @@ const list_browser_sessions = async(
 };
 
 const handle_browser_open = async(url: string, opts: Browser_cli_opts)=>{
+    assert_flags_not_set(opts, 'brightdata browser open', UNIMPLEMENTED_FLAGS);
     const api_key = ensure_authenticated(opts.apiKey);
     const session_name = get_session_name(opts.session);
     const zone = get_browser_zone(opts.zone);
@@ -203,6 +281,7 @@ const handle_browser_open = async(url: string, opts: Browser_cli_opts)=>{
 };
 
 const handle_browser_status = async(opts: Browser_cli_opts)=>{
+    assert_open_session_flags(opts, 'brightdata browser status');
     const session_name = get_session_name(opts.session);
     await ensure_active_session(session_name, opts);
     const data = await send_browser_action(session_name, 'status', opts) as Browser_daemon_status;
@@ -210,6 +289,7 @@ const handle_browser_status = async(opts: Browser_cli_opts)=>{
 };
 
 const handle_browser_network = async(opts: Browser_cli_opts)=>{
+    assert_open_session_flags(opts, 'brightdata browser network');
     const session_name = get_session_name(opts.session);
     await ensure_active_session(session_name, opts);
     const data = await send_browser_action(session_name, 'network', opts) as Browser_daemon_network;
@@ -217,11 +297,28 @@ const handle_browser_network = async(opts: Browser_cli_opts)=>{
 };
 
 const handle_browser_sessions = async(opts: Browser_cli_opts = {})=>{
+    assert_open_session_flags(opts, 'brightdata browser sessions');
+    if (has_flag_value(opts.session))
+    {
+        fail(
+            '--session is not supported by "brightdata browser sessions". '
+            +'This command lists all active sessions.'
+        );
+    }
     const sessions = await list_browser_sessions(opts);
     print(sessions, get_print_opts(opts));
 };
 
 const handle_browser_close = async(opts: Browser_cli_opts = {})=>{
+    assert_open_session_flags(opts, 'brightdata browser close');
+    if (opts.all && has_flag_value(opts.session))
+    {
+        fail(
+            '--session cannot be combined with '
+            +'"brightdata browser close --all".'
+        );
+    }
+
     if (opts.all)
     {
         const sessions = get_browser_session_names(opts);
@@ -270,69 +367,87 @@ const handle_browser_close = async(opts: Browser_cli_opts = {})=>{
     success(`Closed browser session "${session_name}".`);
 };
 
-const add_output_options = (command: Command)=>{
-    return command
+const create_browser_command = ()=>{
+    const browser = new Command('browser')
+        .description('Control Bright Data browser sessions')
+        .option('-k, --api-key <key>', 'Override API key')
+        .option('-o, --output <path>', 'Write output to file')
         .option('--json', 'Force JSON output')
         .option('--pretty', 'Pretty-print JSON output')
-        .option('-o, --output <path>', 'Write output to file');
-};
-
-const add_session_options = (command: Command)=>{
-    return add_output_options(command)
-        .option('--session <name>', 'Browser session name', DEFAULT_SESSION_NAME)
-        .option('--timeout <ms>', 'IPC timeout in milliseconds');
-};
-
-const browser_open_command = add_session_options(
-    new Command('open')
-        .description('Navigate to a URL in the Bright Data browser')
-        .argument('<url>', 'URL to navigate to')
-        .option('--country <code>', 'ISO country code for geo-targeting (e.g. us, de)')
-        .option('--zone <name>', `Browser zone name (default: ${DEFAULT_BROWSER_ZONE})`)
+        .option(
+            '--session <name>',
+            `Browser session name (default: ${DEFAULT_SESSION_NAME})`,
+        )
+        .option(
+            '--country <code>',
+            'ISO country code for geo-targeting (e.g. us, de)',
+        )
+        .option(
+            '--zone <name>',
+            `Browser zone name (default: ${DEFAULT_BROWSER_ZONE})`,
+        )
+        .option('--compact', 'Use compact browser output when supported')
+        .option(
+            '--timeout <ms>',
+            `Command timeout in milliseconds (default: ${DEFAULT_IPC_TIMEOUT_MS})`,
+        )
+        .option('--headed', 'Request headed browser mode when supported')
         .option(
             '--idle-timeout <ms>',
-            `Daemon idle timeout in milliseconds (default: ${DEFAULT_DAEMON_IDLE_TIMEOUT_MS})`,
-        )
-        .option('-k, --api-key <key>', 'Override API key')
-        .action(handle_browser_open)
-);
+            'Daemon idle timeout in milliseconds '
+            +`(default: ${DEFAULT_DAEMON_IDLE_TIMEOUT_MS})`,
+        );
 
-const browser_status_command = add_session_options(
-    new Command('status')
-        .description('Show the current state of a browser session')
-        .action(handle_browser_status)
-);
+    browser.addCommand(
+        new Command('open')
+            .description('Navigate to a URL in the Bright Data browser')
+            .argument('<url>', 'URL to navigate to')
+            .action(async(url, opts, command)=>
+                handle_browser_open(url, get_action_opts(opts, command))
+            )
+    );
 
-const browser_network_command = add_session_options(
-    new Command('network')
-        .description('Show tracked network requests for a browser session')
-        .action(handle_browser_network)
-);
+    browser.addCommand(
+        new Command('status')
+            .description('Show the current state of a browser session')
+            .action(async(opts, command)=>
+                handle_browser_status(get_action_opts(opts, command))
+            )
+    );
 
-const browser_close_command = add_session_options(
-    new Command('close')
-        .description('Close one or all active browser sessions')
-        .option('--all', 'Close all active browser sessions')
-        .action(handle_browser_close)
-);
+    browser.addCommand(
+        new Command('network')
+            .description('Show tracked network requests for a browser session')
+            .action(async(opts, command)=>
+                handle_browser_network(get_action_opts(opts, command))
+            )
+    );
 
-const browser_sessions_command = add_output_options(
-    new Command('sessions')
-        .description('List active browser daemon sessions')
-        .option('--timeout <ms>', 'IPC timeout in milliseconds')
-        .action(handle_browser_sessions)
-);
+    browser.addCommand(
+        new Command('close')
+            .description('Close one or all active browser sessions')
+            .option('--all', 'Close all active browser sessions')
+            .action(async(opts, command)=>
+                handle_browser_close(get_action_opts(opts, command))
+            )
+    );
 
-const browser_command = new Command('browser')
-    .description('Control Bright Data browser sessions')
-    .addCommand(browser_open_command)
-    .addCommand(browser_status_command)
-    .addCommand(browser_network_command)
-    .addCommand(browser_close_command)
-    .addCommand(browser_sessions_command);
+    browser.addCommand(
+        new Command('sessions')
+            .description('List active browser daemon sessions')
+            .action(async(opts, command)=>
+                handle_browser_sessions(get_action_opts(opts, command))
+            )
+    );
+
+    return browser;
+};
+
+const browser_command = create_browser_command();
 
 export {
     browser_command,
+    create_browser_command,
     get_browser_session_names,
     handle_browser_close,
     handle_browser_network,

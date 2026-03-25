@@ -1,6 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(()=>({
+    DEFAULT_IPC_TIMEOUT_MS: 30_000,
     DEFAULT_SESSION_NAME: 'default',
     ensure_authenticated: vi.fn(),
     ensure_browser_zone: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock('../../browser/daemon', ()=>({
 }));
 
 vi.mock('../../browser/ipc', ()=>({
+    DEFAULT_IPC_TIMEOUT_MS: mocks.DEFAULT_IPC_TIMEOUT_MS,
     DEFAULT_SESSION_NAME: mocks.DEFAULT_SESSION_NAME,
     get_daemon_base_dir: mocks.get_daemon_base_dir,
     normalize_session_name: mocks.normalize_session_name,
@@ -65,6 +67,7 @@ vi.mock('../../utils/spinner', ()=>({
 }));
 
 import {
+    create_browser_command,
     get_browser_session_names,
     handle_browser_close,
     handle_browser_open,
@@ -203,5 +206,96 @@ describe('commands/browser', ()=>{
             {daemon_dir: undefined, timeout_ms: undefined}
         );
         expect(mocks.success).toHaveBeenCalledWith('Closed 2 browser sessions.');
+    });
+
+    it('parses browser-group flags for open and forwards them to the handler flow', async()=>{
+        mocks.send_command.mockResolvedValue({
+            success: true,
+            data: {
+                status: 200,
+                title: 'Example Domain',
+                url: 'https://example.com',
+            },
+        });
+        const command = create_browser_command();
+        command.exitOverride();
+
+        await command.parseAsync([
+            'open',
+            'https://example.com',
+            '--session',
+            'shop',
+            '--timeout',
+            '1234',
+            '--country',
+            'us',
+            '--zone',
+            'browser_us',
+            '--idle-timeout',
+            '4567',
+            '--json',
+        ], {from: 'user'});
+
+        expect(mocks.ensure_browser_zone).toHaveBeenCalledWith(
+            'api_key',
+            'browser_us'
+        );
+        expect(mocks.get_cdp_endpoint).toHaveBeenCalledWith(
+            'api_key',
+            'browser_us',
+            'us'
+        );
+        expect(mocks.ensure_daemon).toHaveBeenCalledWith('shop', {
+            cdp_endpoint: 'wss://browser.example',
+            daemon_dir: undefined,
+            idle_timeout_ms: 4567,
+        });
+        expect(mocks.send_command).toHaveBeenCalledWith(
+            'shop',
+            expect.objectContaining({
+                action: 'navigate',
+                params: {url: 'https://example.com'},
+            }),
+            {daemon_dir: undefined, timeout_ms: 1234}
+        );
+        expect(mocks.print).toHaveBeenCalledWith(
+            {
+                status: 200,
+                title: 'Example Domain',
+                url: 'https://example.com',
+            },
+            {json: true, output: undefined, pretty: undefined}
+        );
+        expect(mocks.success).not.toHaveBeenCalled();
+    });
+
+    it('rejects open-only flags on status through browser-group parsing', async()=>{
+        const command = create_browser_command();
+        command.exitOverride();
+
+        await expect(command.parseAsync([
+            'status',
+            '--country',
+            'us',
+        ], {from: 'user'})).rejects.toThrow(
+            'fail:--country is not supported by "brightdata browser status".'
+        );
+
+        expect(mocks.send_command).not.toHaveBeenCalled();
+    });
+
+    it('rejects not-yet-implemented global flags on open', async()=>{
+        const command = create_browser_command();
+        command.exitOverride();
+
+        await expect(command.parseAsync([
+            'open',
+            'https://example.com',
+            '--headed',
+        ], {from: 'user'})).rejects.toThrow(
+            'fail:--headed is not supported by "brightdata browser open".'
+        );
+
+        expect(mocks.ensure_authenticated).not.toHaveBeenCalled();
     });
 });
