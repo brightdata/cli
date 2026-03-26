@@ -25,6 +25,7 @@
 | `brightdata scrape` | Scrape any URL — bypasses CAPTCHAs, JS rendering, anti-bot protections |
 | `brightdata search` | Google / Bing / Yandex search with structured JSON output |
 | `brightdata pipelines` | Extract structured data from 40+ platforms (Amazon, LinkedIn, TikTok…) |
+| `brightdata browser` | Control a real browser via Bright Data's Scraping Browser — navigate, snapshot, click, type, and more |
 | `brightdata zones` | List and inspect your Bright Data proxy zones |
 | `brightdata budget` | View account balance and per-zone cost & bandwidth |
 | `brightdata skill` | Install Bright Data AI agent skills into your coding agent |
@@ -44,6 +45,7 @@
   - [scrape](#scrape)
   - [search](#search)
   - [pipelines](#pipelines)
+  - [browser](#browser)
   - [status](#status)
   - [zones](#zones)
   - [budget](#budget)
@@ -292,6 +294,333 @@ See [Dataset Types Reference](#dataset-types-reference) for the full list.
 
 ---
 
+### `browser`
+
+Control a real browser session powered by [Bright Data's Scraping Browser](https://brightdata.com/products/scraping-browser). A lightweight local daemon holds the browser connection open between commands, giving you persistent state without reconnecting on every call.
+
+```bash
+brightdata browser open <url>              # Start a session and navigate
+brightdata browser snapshot                # Get an accessibility tree of the page
+brightdata browser screenshot [path]       # Take a PNG screenshot
+brightdata browser click <ref>             # Click an element
+brightdata browser type <ref> <text>       # Type into an element
+brightdata browser fill <ref> <value>      # Fill a form field
+brightdata browser select <ref> <value>    # Select a dropdown option
+brightdata browser check <ref>             # Check a checkbox / radio
+brightdata browser uncheck <ref>           # Uncheck a checkbox
+brightdata browser hover <ref>             # Hover over an element
+brightdata browser scroll                  # Scroll the page
+brightdata browser get text [selector]     # Get text content
+brightdata browser get html [selector]     # Get HTML content
+brightdata browser back                    # Navigate back
+brightdata browser forward                 # Navigate forward
+brightdata browser reload                  # Reload the page
+brightdata browser network                 # Show captured network requests
+brightdata browser cookies                 # Show cookies
+brightdata browser status                  # Show session state
+brightdata browser sessions                # List all active sessions
+brightdata browser close                   # Close session and stop daemon
+```
+
+**Global flags** (work with every subcommand)
+
+| Flag | Description |
+|---|---|
+| `--session <name>` | Session name — run multiple isolated sessions in parallel (default: `default`) |
+| `--country <code>` | Geo-target by ISO country code (e.g. `us`, `de`). On `open`, changing country reconnects the browser |
+| `--zone <name>` | Scraping Browser zone (default: `cli_browser`) |
+| `--timeout <ms>` | IPC command timeout in milliseconds (default: `30000`) |
+| `--idle-timeout <ms>` | Daemon auto-shutdown after idle (default: `600000` = 10 min) |
+| `--json` / `--pretty` | JSON output |
+| `-o, --output <path>` | Write output to file |
+| `-k, --api-key <key>` | Override API key |
+
+---
+
+#### `browser open <url>`
+
+Navigate to a URL. Starts the daemon and browser session automatically if not already running.
+
+```bash
+brightdata browser open https://example.com
+brightdata browser open https://amazon.com --country us --session shop
+```
+
+| Flag | Description |
+|---|---|
+| `--country <code>` | Geo-targeting. Reconnects the browser if the country changes on an existing session |
+| `--zone <name>` | Browser zone name |
+| `--idle-timeout <ms>` | Daemon idle timeout for this session |
+
+---
+
+#### `browser snapshot`
+
+Capture the page as a text accessibility tree. This is the primary way AI agents read page content — far more token-efficient than raw HTML.
+
+```bash
+brightdata browser snapshot
+brightdata browser snapshot --compact          # Interactive elements + ancestors only
+brightdata browser snapshot --interactive      # Interactive elements as a flat list
+brightdata browser snapshot --depth 3          # Limit tree depth
+brightdata browser snapshot --selector "main"  # Scope to a CSS subtree
+brightdata browser snapshot --wrap             # Wrap output in AI-safe content boundaries
+```
+
+**Output format:**
+```
+Page: Example Domain
+URL: https://example.com
+
+- heading "Example Domain" [level=1]
+- paragraph "This domain is for use in illustrative examples."
+- link "More information..." [ref=e1]
+```
+
+Each interactive element gets a `ref` (e.g. `e1`, `e2`) that you pass to `click`, `type`, `fill`, etc.
+
+| Flag | Description |
+|---|---|
+| `--compact` | Only interactive elements and their ancestors (70–90% fewer tokens) |
+| `--interactive` | Only interactive elements, as a flat list |
+| `--depth <n>` | Limit tree depth to a non-negative integer |
+| `--selector <sel>` | Scope snapshot to elements matching a CSS selector |
+| `--wrap` | Wrap output in `--- BRIGHTDATA_BROWSER_CONTENT ... ---` boundaries (useful for AI agent prompt injection safety) |
+
+---
+
+#### `browser screenshot [path]`
+
+Capture a PNG screenshot of the current viewport.
+
+```bash
+brightdata browser screenshot
+brightdata browser screenshot ./result.png
+brightdata browser screenshot --full-page -o page.png
+brightdata browser screenshot --base64
+```
+
+| Flag | Description |
+|---|---|
+| `[path]` | Where to save the PNG (default: temp directory) |
+| `--full-page` | Capture the full scrollable page, not just the viewport |
+| `--base64` | Output base64-encoded PNG data instead of saving to a file |
+
+---
+
+#### `browser click <ref>`
+
+Click an element by its snapshot ref.
+
+```bash
+brightdata browser click e3
+brightdata browser click e3 --session shop
+```
+
+---
+
+#### `browser type <ref> <text>`
+
+Type text into an element. Clears the field first by default.
+
+```bash
+brightdata browser type e5 "search query"
+brightdata browser type e5 " more text" --append   # Append to existing value
+brightdata browser type e5 "search query" --submit  # Press Enter after typing
+```
+
+| Flag | Description |
+|---|---|
+| `--append` | Append to existing value using key-by-key simulation |
+| `--submit` | Press Enter after typing |
+
+---
+
+#### `browser fill <ref> <value>`
+
+Fill a form field directly (no keyboard simulation). Use `type` if you need to trigger `keydown`/`keyup` events.
+
+```bash
+brightdata browser fill e2 "user@example.com"
+```
+
+---
+
+#### `browser select <ref> <value>`
+
+Select a dropdown option by its visible label.
+
+```bash
+brightdata browser select e4 "United States"
+```
+
+---
+
+#### `browser check <ref>` / `browser uncheck <ref>`
+
+Check or uncheck a checkbox or radio button.
+
+```bash
+brightdata browser check e7
+brightdata browser uncheck e7
+```
+
+---
+
+#### `browser hover <ref>`
+
+Hover the mouse over an element (triggers hover states, tooltips, dropdowns).
+
+```bash
+brightdata browser hover e2
+```
+
+---
+
+#### `browser scroll`
+
+Scroll the viewport or scroll an element into view.
+
+```bash
+brightdata browser scroll                        # Scroll down 300px (default)
+brightdata browser scroll --direction up
+brightdata browser scroll --direction down --distance 600
+brightdata browser scroll --ref e10              # Scroll element e10 into view
+```
+
+| Flag | Description |
+|---|---|
+| `--direction <dir>` | `up`, `down`, `left`, `right` (default: `down`) |
+| `--distance <px>` | Pixels to scroll (default: `300`) |
+| `--ref <ref>` | Scroll this element into view instead of the viewport |
+
+---
+
+#### `browser get text [selector]`
+
+Get the text content of the page or a scoped element.
+
+```bash
+brightdata browser get text           # Full page text
+brightdata browser get text "h1"      # Text of the first h1
+brightdata browser get text "#price"  # Text inside #price
+```
+
+---
+
+#### `browser get html [selector]`
+
+Get the HTML of the page or a scoped element.
+
+```bash
+brightdata browser get html              # Full page outer HTML
+brightdata browser get html ".product"   # innerHTML of .product
+brightdata browser get html --pretty     # JSON output with selector field
+```
+
+---
+
+#### `browser network`
+
+Show HTTP requests captured since the last navigation.
+
+```bash
+brightdata browser network
+brightdata browser network --json
+```
+
+**Example output:**
+```
+Network Requests (5 total):
+[GET] https://example.com/ => [200]
+[GET] https://example.com/style.css => [200]
+[POST] https://api.example.com/track => [204]
+```
+
+---
+
+#### `browser cookies`
+
+Show cookies for the active session.
+
+```bash
+brightdata browser cookies
+brightdata browser cookies --pretty
+```
+
+---
+
+#### `browser status`
+
+Show the current state of a browser session.
+
+```bash
+brightdata browser status
+brightdata browser status --session shop --pretty
+```
+
+---
+
+#### `browser sessions`
+
+List all active browser daemon sessions.
+
+```bash
+brightdata browser sessions
+brightdata browser sessions --pretty
+```
+
+---
+
+#### `browser close`
+
+Close a session and stop its daemon.
+
+```bash
+brightdata browser close                   # Close the default session
+brightdata browser close --session shop    # Close a named session
+brightdata browser close --all             # Close all active sessions
+```
+
+---
+
+**Example: AI agent workflow**
+
+```bash
+# Open a US-targeted session
+brightdata browser open https://example.com --country us
+
+# Read the page structure (compact for token efficiency)
+brightdata browser snapshot --compact
+
+# Interact using refs from the snapshot
+brightdata browser click e3
+brightdata browser type e5 "search query" --submit
+
+# Get updated snapshot after interaction
+brightdata browser snapshot --compact
+
+# Save a screenshot for visual verification
+brightdata browser screenshot ./result.png
+
+# Done
+brightdata browser close
+```
+
+**Example: multi-session comparison**
+
+```bash
+brightdata browser open https://amazon.com --session us --country us
+brightdata browser open https://amazon.com --session de --country de
+
+brightdata browser snapshot --session us --json > us.json
+brightdata browser snapshot --session de --json > de.json
+
+brightdata browser close --all
+```
+
+---
+
 ### `status`
 
 Check the status of an async snapshot job (returned by `--async` or `pipelines`).
@@ -516,6 +845,8 @@ CLI flags  →  Environment variables  →  config.json  →  Defaults
 | `BRIGHTDATA_UNLOCKER_ZONE` | Default Web Unlocker zone |
 | `BRIGHTDATA_SERP_ZONE` | Default SERP zone |
 | `BRIGHTDATA_POLLING_TIMEOUT` | Default polling timeout in seconds |
+| `BRIGHTDATA_BROWSER_ZONE` | Default Scraping Browser zone (default: `cli_browser`) |
+| `BRIGHTDATA_DAEMON_DIR` | Override the directory used for browser daemon socket and PID files |
 
 ```bash
 BRIGHTDATA_API_KEY=xxx BRIGHTDATA_UNLOCKER_ZONE=my_zone \
@@ -669,6 +1000,29 @@ Wait a moment and retry. Use `--async` for large jobs to avoid timeouts.
 brightdata pipelines amazon_product <url> --timeout 1200
 # or
 export BRIGHTDATA_POLLING_TIMEOUT=1200
+```
+
+**`No active browser session "default"`**
+```bash
+# Start a session first
+brightdata browser open https://example.com
+```
+
+**Browser daemon won't start**
+```bash
+# Check if a stale socket file exists and clear it
+brightdata browser close
+# Then retry
+brightdata browser open https://example.com
+```
+
+**Element ref not found after interaction**
+
+Refs are re-assigned on every `snapshot` call. If you navigate or click (which may cause the page to change), take a fresh snapshot before using refs again:
+```bash
+brightdata browser click e3
+brightdata browser snapshot --compact   # refresh refs
+brightdata browser type e5 "text"
 ```
 
 **Garbled output in non-interactive terminal**
