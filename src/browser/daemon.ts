@@ -4,6 +4,17 @@ import os from 'os';
 import path from 'path';
 import {chromium} from 'playwright-core';
 import {clear_connection_state, ensure_connected as ensure_browser_connected} from './connection';
+import {
+    handle_check,
+    handle_click,
+    handle_fill,
+    handle_get_html,
+    handle_get_text,
+    handle_hover,
+    handle_scroll,
+    handle_select,
+    handle_type,
+} from './interaction';
 import {parse_daemon_request} from './ipc';
 import {take_screenshot} from './screenshot';
 import {capture_snapshot} from './snapshot';
@@ -27,6 +38,7 @@ type Json_object = Record<string, unknown>;
 type Tracked_request = {
     method: string;
     url: string;
+    resource_type?: string;
     status?: number;
 };
 
@@ -491,13 +503,25 @@ class BrowserDaemon {
         {
         case 'back':
             return this.handle_history_navigation('back');
+        case 'check':
+            return handle_check(await this.ensure_connected(), request.params, true);
+        case 'click':
+            return handle_click(await this.ensure_connected(), request.params);
         case 'close':
             await this.close_browser();
             return {closed: true};
         case 'cookies':
             return this.handle_cookies();
+        case 'fill':
+            return handle_fill(await this.ensure_connected(), request.params);
         case 'forward':
             return this.handle_history_navigation('forward');
+        case 'get_html':
+            return handle_get_html(await this.ensure_connected(), request.params);
+        case 'get_text':
+            return handle_get_text(await this.ensure_connected(), request.params);
+        case 'hover':
+            return handle_hover(await this.ensure_connected(), request.params);
         case 'navigate':
             return this.handle_navigate(request.params);
         case 'network':
@@ -508,10 +532,18 @@ class BrowserDaemon {
             return this.handle_reload();
         case 'screenshot':
             return this.handle_screenshot(request.params);
+        case 'scroll':
+            return handle_scroll(await this.ensure_connected(), request.params);
+        case 'select':
+            return handle_select(await this.ensure_connected(), request.params);
         case 'snapshot':
             return this.handle_snapshot(request.params);
         case 'status':
             return this.handle_status();
+        case 'type':
+            return handle_type(await this.ensure_connected(), request.params);
+        case 'uncheck':
+            return handle_check(await this.ensure_connected(), request.params, false);
         default:
             throw new Error(
                 `Unknown daemon action "${request.action}".`
@@ -526,10 +558,26 @@ class BrowserDaemon {
             throw new Error('Navigate requires a non-empty "url" parameter.');
         }
 
+        const new_endpoint = params?.['cdp_endpoint'];
+        if (new_endpoint !== undefined)
+        {
+            if (typeof new_endpoint != 'string' || !new_endpoint.trim())
+                throw new Error('Navigate "cdp_endpoint" must be a non-empty string.');
+            if (new_endpoint.trim() !== this.state.cdp_endpoint)
+                await this.switch_cdp_endpoint(new_endpoint.trim());
+        }
+
         const page = await this.ensure_connected();
         this.state.dom_refs.clear();
+        this.state.requests.clear();
         const response = await page.goto(url, {waitUntil: 'load'});
         return this.create_navigation_result(page, response);
+    }
+
+    private async switch_cdp_endpoint(new_endpoint: string): Promise<void> {
+        await this.close_browser();
+        this.state.cdp_endpoint = new_endpoint;
+        this.state.requests.clear();
     }
 
     private async handle_history_navigation(direction: 'back'|'forward'){
@@ -599,12 +647,21 @@ class BrowserDaemon {
             );
         }
 
+        const wrap = params?.['wrap'];
+        if (wrap !== undefined && typeof wrap != 'boolean')
+        {
+            throw new Error(
+                'Snapshot "wrap" parameter must be a boolean when provided.'
+            );
+        }
+
         const page = await this.ensure_connected();
         const result = await capture_snapshot(page, {
             compact: compact === true,
             depth: depth as number|undefined,
             interactive: interactive === true,
             selector: typeof selector == 'string' ? selector.trim() : undefined,
+            wrap: wrap === true,
         });
 
         this.state.dom_refs.clear();
@@ -620,6 +677,7 @@ class BrowserDaemon {
             snapshot: result.snapshot,
             title: result.title,
             url: result.url,
+            wrap: result.wrap,
         };
     }
 
@@ -741,6 +799,7 @@ class BrowserDaemon {
         this.state.requests.set(request_id, {
             method: request.method(),
             url: request.url(),
+            resource_type: request.resourceType(),
         });
         this.trim_tracked_requests();
     }

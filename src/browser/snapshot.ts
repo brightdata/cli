@@ -1,12 +1,26 @@
+import crypto from 'crypto';
 import type {Page} from 'playwright-core';
 
 const DOM_REF_ATTRIBUTE = 'data-bd-ref';
+
+const CONTENT_BOUNDARY_HEADER = 'BRIGHTDATA_BROWSER_CONTENT';
+const CONTENT_BOUNDARY_FOOTER = 'END_BRIGHTDATA_BROWSER_CONTENT';
+
+const wrap_content = (content: string, origin: string): string=>{
+    const nonce = crypto.randomBytes(16).toString('hex');
+    return [
+        `--- ${CONTENT_BOUNDARY_HEADER} nonce=${nonce} origin=${origin} ---`,
+        content,
+        `--- ${CONTENT_BOUNDARY_FOOTER} nonce=${nonce} ---`,
+    ].join('\n');
+};
 
 type Snapshot_capture_opts = {
     compact?: boolean;
     depth?: number;
     interactive?: boolean;
     selector?: string;
+    wrap?: boolean;
 };
 
 type Snapshot_ref = {
@@ -39,6 +53,7 @@ type Snapshot_capture_result = {
     snapshot: string;
     title: string;
     url: string;
+    wrap: boolean;
 };
 
 type Snapshot_filter_opts = {
@@ -239,6 +254,7 @@ const capture_snapshot = async(
     const depth = normalize_snapshot_depth(opts.depth);
     const interactive = opts.interactive === true;
     const selector = normalize_snapshot_selector(opts.selector);
+    const wrap = opts.wrap === true;
 
     const payload = await page.evaluate((arg: Snapshot_evaluate_arg)=>{
         const browser_global = globalThis as unknown as {
@@ -618,27 +634,33 @@ const capture_snapshot = async(
     const title = await read_page_title(page);
     const url = page.url();
 
+    const snapshot_text = format_snapshot_text({
+        empty_label: interactive ? '(no interactive elements)' : '(empty)',
+        nodes,
+        title,
+        url,
+    });
+
     return {
         compact,
         depth,
         interactive,
         refs,
         selector,
-        snapshot: format_snapshot_text({
-            empty_label: interactive ? '(no interactive elements)' : '(empty)',
-            nodes,
-            title,
-            url,
-        }),
+        snapshot: wrap ? wrap_content(snapshot_text, url) : snapshot_text,
         title,
         url,
+        wrap,
     };
 };
 
 export {
+    CONTENT_BOUNDARY_FOOTER,
+    CONTENT_BOUNDARY_HEADER,
     DOM_REF_ATTRIBUTE,
     capture_snapshot,
     format_snapshot_text,
+    wrap_content,
 };
 export type {
     Snapshot_capture_opts,

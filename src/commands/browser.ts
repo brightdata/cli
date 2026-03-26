@@ -25,12 +25,15 @@ import type {Print_opts} from '../utils/output';
 
 type Browser_cli_opts = {
     all?: boolean;
+    append?: boolean;
     apiKey?: string;
     base64?: boolean;
     compact?: boolean;
     country?: string;
     daemonDir?: string;
     depth?: string;
+    direction?: string;
+    distance?: string;
     fullPage?: boolean;
     headed?: boolean;
     idleTimeout?: string;
@@ -38,9 +41,12 @@ type Browser_cli_opts = {
     json?: boolean;
     output?: string;
     pretty?: boolean;
+    ref?: string;
     selector?: string;
     session?: string;
+    submit?: boolean;
     timeout?: string;
+    wrap?: boolean;
     zone?: string;
 };
 
@@ -77,6 +83,7 @@ type Browser_daemon_snapshot = {
     snapshot?: string;
     title?: string|null;
     url?: string|null;
+    wrap?: boolean;
 };
 
 type Browser_daemon_screenshot = {
@@ -129,6 +136,11 @@ const SNAPSHOT_ONLY_FLAGS: Browser_flag_definition[] = [
     {
         key: 'selector',
         label: '--selector',
+        message: 'Use it with "brightdata browser snapshot".',
+    },
+    {
+        key: 'wrap',
+        label: '--wrap',
         message: 'Use it with "brightdata browser snapshot".',
     },
 ];
@@ -298,6 +310,7 @@ const get_snapshot_params = (opts: Browser_cli_opts)=>({
     depth: parse_snapshot_depth(opts.depth),
     interactive: opts.interactive === true,
     selector: parse_snapshot_selector(opts.selector),
+    wrap: opts.wrap === true,
 });
 
 const is_raw_screenshot_output_path = (
@@ -446,7 +459,12 @@ const handle_browser_open = async(url: string, opts: Browser_cli_opts)=>{
             daemon_dir: opts.daemonDir,
             idle_timeout_ms,
         });
-        const data = await send_browser_action(session_name, 'navigate', opts, {url}) as Browser_navigation_result;
+        const data = await send_browser_action(
+            session_name,
+            'navigate',
+            opts,
+            {url, cdp_endpoint},
+        ) as Browser_navigation_result;
         spinner.stop();
         print_navigation_result(`Navigated to ${url}`, data, opts);
     } catch(error) {
@@ -538,6 +556,128 @@ const handle_browser_screenshot = async(
     );
 };
 
+const handle_browser_fill = async(
+    ref: string,
+    value: string,
+    opts: Browser_cli_opts,
+)=>{
+    assert_standard_session_flags(opts, 'brightdata browser fill');
+    const session_name = get_session_name(opts.session);
+    await ensure_active_session(session_name, opts);
+    await send_browser_action(session_name, 'fill', opts, {ref, value});
+};
+
+const handle_browser_get_text = async(
+    selector: string|undefined,
+    opts: Browser_cli_opts,
+)=>{
+    assert_standard_session_flags(opts, 'brightdata browser get text');
+    const session_name = get_session_name(opts.session);
+    await ensure_active_session(session_name, opts);
+    const data = await send_browser_action(
+        session_name,
+        'get_text',
+        opts,
+        selector ? {selector} : undefined,
+    ) as {text?: string};
+
+    if (opts.json || opts.pretty)
+    {
+        print(data, get_print_opts(opts));
+        return;
+    }
+    print(data.text ?? '', {output: opts.output});
+};
+
+const handle_browser_get_html = async(
+    selector: string|undefined,
+    opts: Browser_cli_opts,
+)=>{
+    assert_standard_session_flags(opts, 'brightdata browser get html');
+    const session_name = get_session_name(opts.session);
+    await ensure_active_session(session_name, opts);
+    const data = await send_browser_action(
+        session_name,
+        'get_html',
+        opts,
+        selector ? {selector} : undefined,
+    ) as {html?: string};
+
+    if (opts.json || opts.pretty)
+    {
+        print(data, get_print_opts(opts));
+        return;
+    }
+    print(data.html ?? '', {output: opts.output});
+};
+
+const handle_browser_click = async(ref: string, opts: Browser_cli_opts)=>{
+    assert_standard_session_flags(opts, 'brightdata browser click');
+    const session_name = get_session_name(opts.session);
+    await ensure_active_session(session_name, opts);
+    await send_browser_action(session_name, 'click', opts, {ref});
+};
+
+const handle_browser_type = async(
+    ref: string,
+    text: string,
+    opts: Browser_cli_opts,
+)=>{
+    assert_standard_session_flags(opts, 'brightdata browser type');
+    const session_name = get_session_name(opts.session);
+    await ensure_active_session(session_name, opts);
+    await send_browser_action(session_name, 'type', opts, {
+        ref,
+        text,
+        append: opts.append === true,
+        submit: opts.submit === true,
+    });
+};
+
+const handle_browser_select = async(
+    ref: string,
+    value: string,
+    opts: Browser_cli_opts,
+)=>{
+    assert_standard_session_flags(opts, 'brightdata browser select');
+    const session_name = get_session_name(opts.session);
+    await ensure_active_session(session_name, opts);
+    await send_browser_action(session_name, 'select', opts, {ref, value});
+};
+
+const handle_browser_check = async(
+    ref: string,
+    checked: boolean,
+    opts: Browser_cli_opts,
+)=>{
+    const cmd = checked ? 'check' : 'uncheck';
+    assert_standard_session_flags(opts, `brightdata browser ${cmd}`);
+    const session_name = get_session_name(opts.session);
+    await ensure_active_session(session_name, opts);
+    await send_browser_action(session_name, cmd, opts, {ref});
+};
+
+const handle_browser_hover = async(ref: string, opts: Browser_cli_opts)=>{
+    assert_standard_session_flags(opts, 'brightdata browser hover');
+    const session_name = get_session_name(opts.session);
+    await ensure_active_session(session_name, opts);
+    await send_browser_action(session_name, 'hover', opts, {ref});
+};
+
+const handle_browser_scroll = async(opts: Browser_cli_opts)=>{
+    assert_standard_session_flags(opts, 'brightdata browser scroll');
+    const session_name = get_session_name(opts.session);
+    await ensure_active_session(session_name, opts);
+    const params: Record<string, unknown> = {};
+    if (opts.direction)
+        params['direction'] = opts.direction;
+    if (opts.distance)
+        params['distance'] = Number(opts.distance);
+    if (opts.ref)
+        params['ref'] = opts.ref;
+    await send_browser_action(session_name, 'scroll', opts, params);
+};
+
 const handle_browser_status = async(opts: Browser_cli_opts)=>{
     const session_name = await resolve_active_session(
         opts,
@@ -551,6 +691,24 @@ const handle_browser_status = async(opts: Browser_cli_opts)=>{
     print(data, get_print_opts(opts));
 };
 
+const format_network_requests = (
+    requests: Array<Record<string, unknown>>,
+): string=>{
+    if (!requests.length)
+        return 'No network requests captured.';
+    const lines = [`Network Requests (${requests.length} total):`];
+    for (const req of requests)
+    {
+        const method = String(req['method'] ?? 'GET').toUpperCase();
+        const url = String(req['url'] ?? '');
+        const status = req['status'] !== undefined
+            ? ` => [${req['status']}]`
+            : '';
+        lines.push(`[${method}] ${url}${status}`);
+    }
+    return lines.join('\n');
+};
+
 const handle_browser_network = async(opts: Browser_cli_opts)=>{
     const session_name = await resolve_active_session(
         opts,
@@ -561,7 +719,14 @@ const handle_browser_network = async(opts: Browser_cli_opts)=>{
         'network',
         opts,
     ) as Browser_daemon_network;
-    print(data.requests ?? [], get_print_opts(opts));
+
+    if (opts.json || opts.pretty)
+    {
+        print(data.requests ?? [], get_print_opts(opts));
+        return;
+    }
+
+    print(format_network_requests(data.requests ?? []), {output: opts.output});
 };
 
 const handle_browser_cookies = async(opts: Browser_cli_opts)=>{
@@ -683,6 +848,7 @@ const create_browser_command = ()=>{
         .option('--interactive', 'Include only interactive elements as a flat list')
         .option('--depth <n>', 'Limit snapshot depth to a non-negative integer')
         .option('--selector <sel>', 'Scope snapshots to a CSS selector subtree')
+        .option('--wrap', 'Wrap snapshot output in AI-safe content boundaries')
         .option('--full-page', 'Capture the full scrollable page in screenshots')
         .option('--base64', 'Include base64-encoded screenshot data in the response')
         .option(
@@ -733,6 +899,98 @@ const create_browser_command = ()=>{
         'Reload the current page in the active browser session',
         handle_browser_reload,
     ));
+    browser.addCommand(
+        new Command('fill')
+            .description('Fill a form field by its snapshot ref')
+            .argument('<ref>', 'Element ref from snapshot (e.g. e1)')
+            .argument('<value>', 'Value to fill')
+            .action(async(ref, value, opts, command)=>
+                handle_browser_fill(ref, value, get_action_opts(opts, command))
+            )
+    );
+
+    const get_cmd = new Command('get')
+        .description('Get page content');
+    get_cmd.addCommand(
+        new Command('text')
+            .description('Get text content of the page or a CSS selector')
+            .argument('[selector]', 'CSS selector to scope the text extraction')
+            .action(async(selector, opts, command)=>
+                handle_browser_get_text(selector, get_action_opts(opts, command))
+            )
+    );
+    get_cmd.addCommand(
+        new Command('html')
+            .description('Get HTML content of the page or a CSS selector')
+            .argument('[selector]', 'CSS selector to scope the HTML extraction')
+            .action(async(selector, opts, command)=>
+                handle_browser_get_html(selector, get_action_opts(opts, command))
+            )
+    );
+    browser.addCommand(get_cmd);
+
+    browser.addCommand(
+        new Command('click')
+            .description('Click an element by its snapshot ref')
+            .argument('<ref>', 'Element ref from snapshot (e.g. e1)')
+            .action(async(ref, opts, command)=>
+                handle_browser_click(ref, get_action_opts(opts, command))
+            )
+    );
+    browser.addCommand(
+        new Command('type')
+            .description('Type text into an element by its snapshot ref')
+            .argument('<ref>', 'Element ref from snapshot (e.g. e1)')
+            .argument('<text>', 'Text to type')
+            .option('--append', 'Append to existing value instead of replacing it')
+            .option('--submit', 'Press Enter after typing')
+            .action(async(ref, text, opts, command)=>
+                handle_browser_type(ref, text, get_action_opts(opts, command))
+            )
+    );
+    browser.addCommand(
+        new Command('select')
+            .description('Select a dropdown option by its label')
+            .argument('<ref>', 'Element ref from snapshot (e.g. e1)')
+            .argument('<value>', 'Option label to select')
+            .action(async(ref, value, opts, command)=>
+                handle_browser_select(ref, value, get_action_opts(opts, command))
+            )
+    );
+    browser.addCommand(
+        new Command('check')
+            .description('Check a checkbox or radio button by its snapshot ref')
+            .argument('<ref>', 'Element ref from snapshot (e.g. e1)')
+            .action(async(ref, opts, command)=>
+                handle_browser_check(ref, true, get_action_opts(opts, command))
+            )
+    );
+    browser.addCommand(
+        new Command('uncheck')
+            .description('Uncheck a checkbox by its snapshot ref')
+            .argument('<ref>', 'Element ref from snapshot (e.g. e1)')
+            .action(async(ref, opts, command)=>
+                handle_browser_check(ref, false, get_action_opts(opts, command))
+            )
+    );
+    browser.addCommand(
+        new Command('hover')
+            .description('Hover over an element by its snapshot ref')
+            .argument('<ref>', 'Element ref from snapshot (e.g. e1)')
+            .action(async(ref, opts, command)=>
+                handle_browser_hover(ref, get_action_opts(opts, command))
+            )
+    );
+    browser.addCommand(
+        new Command('scroll')
+            .description('Scroll the page or scroll an element into view')
+            .option('--direction <dir>', 'Scroll direction: up, down, left, right (default: down)')
+            .option('--distance <px>', 'Pixels to scroll (default: 300)')
+            .option('--ref <ref>', 'Scroll this element into view instead of the viewport')
+            .action(async(opts, command)=>
+                handle_browser_scroll(get_action_opts(opts, command))
+            )
+    );
     browser.addCommand(create_session_command(
         'status',
         'Show the current state of a browser session',
@@ -774,15 +1032,24 @@ export {
     create_browser_command,
     get_browser_session_names,
     handle_browser_back,
+    handle_browser_check,
+    handle_browser_click,
     handle_browser_close,
     handle_browser_cookies,
+    handle_browser_fill,
     handle_browser_forward,
+    handle_browser_get_html,
+    handle_browser_get_text,
+    handle_browser_hover,
     handle_browser_network,
     handle_browser_open,
     handle_browser_reload,
     handle_browser_screenshot,
+    handle_browser_scroll,
+    handle_browser_select,
     handle_browser_sessions,
     handle_browser_snapshot,
     handle_browser_status,
+    handle_browser_type,
     list_browser_sessions,
 };
