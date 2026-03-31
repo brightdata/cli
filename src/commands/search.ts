@@ -120,6 +120,57 @@ const format_markdown = (data: Search_response, query: string): string=>{
     return lines.join('\n');
 };
 
+const print_news_table = (data: Search_response)=>{
+    const news = data.news ?? [];
+    if (!news.length)
+    {
+        console.log(dim('No news results found.'));
+        return;
+    }
+    const rows = news.map(r=>({
+        rank:   String(r.global_rank ?? ''),
+        title:  (r.title ?? '').slice(0, 50),
+        source: (r.source ?? '').slice(0, 20),
+        date:   (r.date ?? '').slice(0, 20),
+        url:    (r.link ?? '').slice(0, 60),
+    }));
+    print_table(rows, ['rank', 'title', 'source', 'date', 'url']);
+};
+
+const print_shopping_table = (data: Search_response)=>{
+    const shopping = data.shopping ?? [];
+    if (!shopping.length)
+    {
+        console.log(dim('No shopping results found.'));
+        return;
+    }
+    const rows = shopping.map(r=>({
+        rank:   String(r.rank ?? ''),
+        title:  (r.title ?? '').slice(0, 40),
+        price:  (r.price ?? ''),
+        shop:   (r.shop ?? '').slice(0, 20),
+        rating: r.rating ? String(r.rating) : '',
+        url:    (r.link ?? '').slice(0, 60),
+    }));
+    print_table(rows, ['rank', 'title', 'price', 'shop', 'rating', 'url']);
+};
+
+const print_images_table = (data: Search_response)=>{
+    const images = data.images ?? [];
+    if (!images.length)
+    {
+        console.log(dim('No image results found.'));
+        return;
+    }
+    const rows = images.map((r, i)=>({
+        '#':     String(i+1),
+        title:   (r.title ?? '').slice(0, 40),
+        source:  (r.source ?? '').slice(0, 20),
+        image:   (r.original_image ?? '').slice(0, 60),
+    }));
+    print_table(rows, ['#', 'title', 'source', 'image']);
+};
+
 const print_google_table = (data: Search_response)=>{
     const organic = data.organic ?? [];
     if (!organic.length)
@@ -192,7 +243,14 @@ const handle_search = async(query: string, opts: Search_opts)=>{
             print(result, print_opts);
             return;
         }
-        print_google_table(result as Search_response);
+        if (opts.type == 'news')
+            print_news_table(result as Search_response);
+        else if (opts.type == 'images')
+            print_images_table(result as Search_response);
+        else if (opts.type == 'shopping')
+            print_shopping_table(result as Search_response);
+        else
+            print_google_table(result as Search_response);
     } catch(e) {
         spinner.stop();
         console.error((e as Error).message);

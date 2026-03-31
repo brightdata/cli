@@ -12,6 +12,35 @@ type Organic_result = {
     description?: string;
 };
 
+type News_result = {
+    link: string;
+    title: string;
+    source?: string;
+    source_logo?: string;
+    date?: string;
+    image?: string;
+    global_rank?: number;
+};
+
+type Image_result = {
+    link: string;
+    title: string;
+    source?: string;
+    original_image?: string;
+    image?: string;
+};
+
+type Shopping_result = {
+    title: string;
+    link: string;
+    price?: string;
+    shop?: string;
+    rating?: number;
+    reviews_cnt?: number;
+    rank?: number;
+    global_rank?: number;
+};
+
 type Search_general = {
     search_engine: string;
     query: string;
@@ -29,7 +58,9 @@ type Search_response = {
     people_also_ask?: unknown[];
     related_searches?: unknown[];
     maps?: unknown[];
-    news?: unknown[];
+    news?: News_result[];
+    images?: Image_result[];
+    shopping?: Shopping_result[];
     videos?: unknown[];
     recipes?: unknown[];
     perspectives?: unknown[];
@@ -55,6 +86,7 @@ export type {
     Search_type,
     Search_device,
     Organic_result,
+    News_result,
     Search_general,
     Search_response,
     Search_opts,
