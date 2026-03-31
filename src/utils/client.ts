@@ -16,6 +16,7 @@ type Request_opts = {
     body?: unknown;
     headers?: Record<string, string>;
     timing?: boolean;
+    raw_buffer?: boolean;
 };
 
 type Api_error = {
@@ -66,6 +67,9 @@ const request = async<T = unknown>(
             }
             if (res.ok)
             {
+                if (opts.raw_buffer)
+                    return Buffer.from(
+                        await res.arrayBuffer()) as unknown as T;
                 const content_type = res.headers.get('content-type') ?? '';
                 if (content_type.includes('application/json'))
                     return await res.json() as T;

@@ -1,9 +1,10 @@
+import fs from 'fs';
 import {Command} from 'commander';
 import {post} from '../utils/client';
 import {ensure_authenticated} from '../utils/auth';
 import {resolve} from '../utils/config';
 import {start as start_spinner} from '../utils/spinner';
-import {print, success, fail} from '../utils/output';
+import {print, success, fail, info} from '../utils/output';
 import type {
     Scrape_format,
     Scrape_request,
@@ -54,17 +55,24 @@ const handle_scrape = async(url: string, opts: Scrape_opts)=>{
     const req = build_request(url, zone, fmt, opts);
     const spinner = start_spinner(`Scraping ${url}...`);
     try {
-        const result = await post<string|Scrape_response_json|Scrape_async_response>(
+        const result = await post<string|Buffer|Scrape_response_json|Scrape_async_response>(
             api_key,
             ENDPOINT,
             req,
-            {timing: opts.timing}
+            {timing: opts.timing, raw_buffer: fmt == 'screenshot'}
         );
         spinner.stop();
         if (opts.async)
         {
             const async_res = result as Scrape_async_response;
             success(`Async job submitted. Response ID: ${async_res.response_id}`);
+            return;
+        }
+        if (fmt == 'screenshot')
+        {
+            const out = opts.output ?? 'screenshot.png';
+            fs.writeFileSync(out, result as Buffer);
+            info(`Output written to ${out}`);
             return;
         }
         const print_opts = {json: opts.json, pretty: opts.pretty, output: opts.output};
