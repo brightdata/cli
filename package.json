@@ -1,6 +1,6 @@
 {
     "name": "@brightdata/cli",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "description": "Command-line interface for Bright Data. Scrape, search, extract structured data, and automate browsers directly from your terminal.",
     "main": "dist/index.js",
     "bin": {
