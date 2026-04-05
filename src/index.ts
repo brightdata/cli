@@ -15,6 +15,7 @@ import {skill_command} from './commands/skill';
 import {budget_command} from './commands/budget';
 import {browser_command} from './commands/browser';
 import {add_mcp_command} from './commands/add-mcp';
+import {discover_command} from './commands/discover';
 import packageJson from '../package.json';
 
 const build_program = ()=>{
@@ -46,6 +47,7 @@ const build_program = ()=>{
     program.addCommand(skill_command);
     program.addCommand(budget_command);
     program.addCommand(browser_command);
+    program.addCommand(discover_command);
     program.addCommand(add_command);
 
     return program;
