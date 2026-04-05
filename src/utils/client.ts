@@ -65,6 +65,10 @@ const request = async<T = unknown>(
                 console.error(`Timing: ${Date.now()-start}ms 
                     (attempt ${attempt+1})`);
             }
+            const brd_error = res.headers.get('x-brd-error')
+                || res.headers.get('x-luminati-error');
+            if (brd_error)
+                throw new Error(`Error: ${brd_error}`);
             if (res.ok)
             {
                 if (opts.raw_buffer)
