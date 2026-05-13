@@ -1,4 +1,4 @@
-import {describe, it, expect, beforeEach, vi} from 'vitest';
+import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
 
 const mocks = vi.hoisted(()=>({
     post: vi.fn(),
@@ -40,12 +40,22 @@ vi.mock('../../utils/polling', ()=>({
     poll_until: mocks.poll_until,
 }));
 
+vi.mock('../../utils/config', ()=>({
+    load: ()=>({api_url: 'https://api.test.local'}),
+}));
+
 import {
     build_template_request,
     build_ai_request,
     extract_progress_status,
     format_create_summary,
     handle_create_scraper,
+    handle_run_scraper,
+    build_run_request,
+    build_run_query,
+    classify_result,
+    parse_result_body,
+    parse_sync_timeout,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -266,6 +276,207 @@ describe('commands/scraper', ()=>{
             expect(messages).toContain('c_abc');
             exit.mockRestore();
             error.mockRestore();
+        });
+    });
+
+    describe('build_run_request', ()=>{
+        it('wraps url in {url}', ()=>{
+            expect(build_run_request('https://x.com/p/1'))
+                .toEqual({url: 'https://x.com/p/1'});
+        });
+    });
+
+    describe('build_run_query', ()=>{
+        it('includes collector and optional flags', ()=>{
+            const q = build_run_query('c_abc',
+                {name: 'job-1', version: 'dev'});
+            const p = new URLSearchParams(q);
+            expect(p.get('collector')).toBe('c_abc');
+            expect(p.get('name')).toBe('job-1');
+            expect(p.get('version')).toBe('dev');
+        });
+
+        it('omits unset name/version and merges extras', ()=>{
+            const q = build_run_query('c_abc', {}, {timeout: '50s'});
+            const p = new URLSearchParams(q);
+            expect(p.get('collector')).toBe('c_abc');
+            expect(p.get('timeout')).toBe('50s');
+            expect(p.has('name')).toBe(false);
+            expect(p.has('version')).toBe(false);
+        });
+    });
+
+    describe('classify_result', ()=>{
+        it('marks 200 with JSON body as ready', ()=>{
+            expect(classify_result(200, '{"k":"v"}')).toBe('__ready__');
+        });
+
+        it('marks 200 with empty body as pending', ()=>{
+            expect(classify_result(200, '')).toBe('__pending__');
+            expect(classify_result(200, '   ')).toBe('__pending__');
+            expect(classify_result(200, 'null')).toBe('__pending__');
+        });
+
+        it('marks 202 as pending', ()=>{
+            expect(classify_result(202, '')).toBe('__pending__');
+        });
+
+        it('marks 4xx/5xx as pending so poll keeps trying briefly',
+            ()=>{
+            expect(classify_result(404, 'not found')).toBe('__pending__');
+        });
+    });
+
+    describe('parse_result_body', ()=>{
+        it('parses JSON when possible', ()=>{
+            expect(parse_result_body('{"a":1}')).toEqual({a: 1});
+            expect(parse_result_body('[1,2]')).toEqual([1, 2]);
+        });
+
+        it('returns trimmed string when not JSON', ()=>{
+            expect(parse_result_body('  hello  ')).toBe('hello');
+        });
+    });
+
+    describe('parse_sync_timeout', ()=>{
+        it('defaults to 50 when undefined', ()=>{
+            expect(parse_sync_timeout(undefined)).toBe(50);
+        });
+
+        it('accepts values in range', ()=>{
+            expect(parse_sync_timeout('25')).toBe(25);
+            expect(parse_sync_timeout('40')).toBe(40);
+            expect(parse_sync_timeout('50')).toBe(50);
+        });
+
+        it('rejects out-of-range and non-numeric', ()=>{
+            expect(()=>parse_sync_timeout('24')).toThrow();
+            expect(()=>parse_sync_timeout('51')).toThrow();
+            expect(()=>parse_sync_timeout('xyz')).toThrow();
+        });
+    });
+
+    describe('handle_run_scraper (async + poll)', ()=>{
+        let fetch_spy: ReturnType<typeof vi.spyOn>;
+
+        beforeEach(()=>{
+            fetch_spy = vi.spyOn(global, 'fetch')
+                .mockImplementation(()=>Promise.reject(
+                    new Error('unstubbed fetch'))) as never;
+        });
+
+        afterEach(()=>{
+            fetch_spy.mockRestore();
+        });
+
+        const stub_fetch = (status: number, body: string)=>{
+            fetch_spy.mockImplementation(()=>Promise.resolve({
+                status,
+                text: ()=>Promise.resolve(body),
+            } as unknown as Response));
+        };
+
+        it('triggers via post and polls get_result', async()=>{
+            mocks.post.mockResolvedValueOnce({response_id: 'r_xyz'});
+            stub_fetch(200, '{"title":"hello"}');
+            mocks.poll_until.mockImplementation(async(o: never)=>{
+                const cfg = o as {fetch_once: ()=>Promise<unknown>};
+                const r = await cfg.fetch_once();
+                return {result: r, attempts: 1};
+            });
+            await handle_run_scraper('c_abc', 'https://x.com/p/1', {});
+            expect(mocks.post).toHaveBeenCalledWith(
+                'api_key',
+                expect.stringMatching(
+                    /\/dca\/trigger_immediate\?collector=c_abc/),
+                {url: 'https://x.com/p/1'},
+                {timing: undefined}
+            );
+            expect(mocks.print).toHaveBeenCalledWith(
+                {title: 'hello'},
+                {json: undefined, pretty: undefined, output: undefined}
+            );
+        });
+
+        it('exits when trigger returns no response_id', async()=>{
+            mocks.post.mockResolvedValueOnce({});
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_run_scraper('c_abc', 'https://x.com', {});
+            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(msg).toContain('response_id');
+            expect(msg).toContain('c_abc');
+            exit.mockRestore();
+            error.mockRestore();
+        });
+    });
+
+    describe('handle_run_scraper (--sync)', ()=>{
+        let fetch_spy: ReturnType<typeof vi.spyOn>;
+
+        beforeEach(()=>{
+            fetch_spy = vi.spyOn(global, 'fetch') as never;
+        });
+
+        afterEach(()=>{
+            fetch_spy.mockRestore();
+        });
+
+        const stub_fetch = (status: number, body: string)=>{
+            fetch_spy.mockImplementation(()=>Promise.resolve({
+                status,
+                text: ()=>Promise.resolve(body),
+            } as unknown as Response));
+        };
+
+        it('calls /dca/crawl and prints body on 200', async()=>{
+            stub_fetch(200, '{"price":99}');
+            await handle_run_scraper('c_abc', 'https://x.com/p/1',
+                {sync: true});
+            expect(fetch_spy).toHaveBeenCalledTimes(1);
+            const call = fetch_spy.mock.calls[0];
+            expect(String(call[0])).toMatch(
+                /\/dca\/crawl\?collector=c_abc.*timeout=50s/);
+            expect(mocks.print).toHaveBeenCalledWith(
+                {price: 99},
+                {json: undefined, pretty: undefined, output: undefined}
+            );
+        });
+
+        it('surfaces response_id and exits on 202 timeout', async()=>{
+            stub_fetch(202,
+                JSON.stringify({error: 'crawl_results_timeout',
+                    response_id: 'r_late'}));
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_run_scraper('c_abc', 'https://x.com',
+                {sync: true});
+            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(msg).toContain('r_late');
+            expect(msg).toContain('Re-run without --sync');
+            exit.mockRestore();
+            error.mockRestore();
+        });
+
+        it('honors --sync-timeout', async()=>{
+            stub_fetch(200, '{}');
+            await handle_run_scraper('c_abc', 'https://x.com',
+                {sync: true, syncTimeout: '30'});
+            const url = String(fetch_spy.mock.calls[0][0]);
+            expect(url).toMatch(/timeout=30s/);
+        });
+
+        it('rejects --sync-timeout out of range', async()=>{
+            await expect(
+                handle_run_scraper('c_abc', 'https://x.com',
+                    {sync: true, syncTimeout: '10'})
+            ).rejects.toThrow(/25 and 50/);
+            expect(mocks.fail).toHaveBeenCalledWith(
+                expect.stringContaining('25 and 50'));
         });
     });
 });

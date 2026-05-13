@@ -1,5 +1,6 @@
 import {Command} from 'commander';
 import {post, get} from '../utils/client';
+import {load as load_config} from '../utils/config';
 import {ensure_authenticated} from '../utils/auth';
 import {start as start_spinner} from '../utils/spinner';
 import {parse_timeout, poll_until} from '../utils/polling';
@@ -11,6 +12,9 @@ import type {
     Trigger_ai_response,
     Ai_progress_response,
     Scraper_create_opts,
+    Run_request,
+    Trigger_immediate_response,
+    Scraper_run_opts,
 } from '../types/scraper';
 
 const CREATE_TEMPLATE_ENDPOINT = '/dca/collector';
@@ -18,6 +22,14 @@ const AI_TRIGGER_PATH = 'automate_template';
 const AI_PROGRESS_PATH = 'automate_template/progress';
 const RUNNING_SENTINEL = '__running__';
 const DONE_STATUS = 'done';
+const TRIGGER_IMMEDIATE_ENDPOINT = '/dca/trigger_immediate';
+const GET_RESULT_ENDPOINT = '/dca/get_result';
+const SYNC_CRAWL_ENDPOINT = '/dca/crawl';
+const SYNC_TIMEOUT_MIN = 25;
+const SYNC_TIMEOUT_MAX = 50;
+const SYNC_TIMEOUT_DEFAULT = 50;
+const READY_SENTINEL = '__ready__';
+const PENDING_SENTINEL = '__pending__';
 
 const build_template_request = (
     opts: Scraper_create_opts
@@ -167,8 +179,214 @@ const handle_create_scraper = async(
             collector_id, scraper_name, progress));
     } catch(e) {
         poll_spinner.stop();
+        const msg = (e as Error).message;
+        const suffix = msg.includes(collector_id)
+            ? '' : ` (collector ${collector_id})`;
+        console.error(`${msg}${suffix}`);
+        process.exit(1);
+        return;
+    }
+};
+
+const parse_sync_timeout = (raw: string|undefined): number=>{
+    const value = raw == null ? SYNC_TIMEOUT_DEFAULT : +raw;
+    if (!Number.isFinite(value)
+        || value < SYNC_TIMEOUT_MIN || value > SYNC_TIMEOUT_MAX)
+    {
+        throw new Error(
+            `Invalid --sync-timeout "${raw}". `
+            +`Must be between ${SYNC_TIMEOUT_MIN} and ${SYNC_TIMEOUT_MAX}.`
+        );
+    }
+    return Math.floor(value);
+};
+
+const build_run_request = (url: string): Run_request=>({url});
+
+const build_run_query = (
+    collector_id: string,
+    opts: Pick<Scraper_run_opts, 'name'|'version'>,
+    extra?: Record<string, string>
+): string=>{
+    const params = new URLSearchParams({collector: collector_id});
+    if (opts.name)
+        params.set('name', opts.name);
+    if (opts.version)
+        params.set('version', opts.version);
+    if (extra)
+    {
+        for (const k of Object.keys(extra))
+            params.set(k, extra[k]);
+    }
+    return params.toString();
+};
+
+const classify_result = (status: number, body: string): string=>{
+    if (status < 200 || status >= 300)
+        return PENDING_SENTINEL;
+    const trimmed = body.trim();
+    if (!trimmed || trimmed == 'null')
+        return PENDING_SENTINEL;
+    return READY_SENTINEL;
+};
+
+const parse_result_body = (body: string): unknown=>{
+    const trimmed = body.trim();
+    try {
+        return JSON.parse(trimmed);
+    } catch(_e) {
+        return trimmed;
+    }
+};
+
+type Raw_response = {
+    status: number;
+    body: string;
+};
+
+const fetch_raw = async(
+    api_key: string,
+    endpoint: string,
+    init: RequestInit
+): Promise<Raw_response>=>{
+    const config = load_config();
+    const base_url = config.api_url ?? 'https://api.brightdata.com';
+    const url = endpoint.startsWith('http') ? endpoint :
+        `${base_url}${endpoint}`;
+    const headers: Record<string, string> = {
+        'Authorization': `Bearer ${api_key}`,
+        'User-Agent': 'brightdata-cli',
+        ...(init.headers as Record<string, string> ?? {}),
+    };
+    if (init.body !== undefined)
+        headers['Content-Type'] = 'application/json';
+    const res = await fetch(url, {...init, headers});
+    const body = await res.text();
+    return {status: res.status, body};
+};
+
+const handle_run_scraper = async(
+    collector_id: string,
+    url: string,
+    opts: Scraper_run_opts
+)=>{
+    const api_key = ensure_authenticated(opts.apiKey);
+    if (opts.sync)
+    {
+        let sync_timeout = SYNC_TIMEOUT_DEFAULT;
+        try {
+            sync_timeout = parse_sync_timeout(opts.syncTimeout);
+        } catch(e) {
+            fail((e as Error).message);
+            return;
+        }
+        const query = build_run_query(collector_id, opts,
+            {timeout: `${sync_timeout}s`});
+        const spinner = start_spinner('Scraping...');
+        try {
+            const res = await fetch_raw(api_key,
+                `${SYNC_CRAWL_ENDPOINT}?${query}`, {
+                    method: 'POST',
+                    body: JSON.stringify(build_run_request(url)),
+                });
+            spinner.stop();
+            if (res.status == 202)
+            {
+                const parsed = parse_result_body(res.body) as
+                    {response_id?: string; message?: string};
+                const rid = parsed?.response_id ?? '<unknown>';
+                console.error(
+                    `Sync request timed out server-side after `
+                    +`${sync_timeout}s (response_id: ${rid}). `
+                    +'Re-run without --sync to poll for results.'
+                );
+                process.exit(1);
+                return;
+            }
+            if (res.status < 200 || res.status >= 300)
+            {
+                console.error(
+                    `Failed to scrape (collector ${collector_id}): `
+                    +`HTTP ${res.status} ${res.body.slice(0, 200)}`
+                );
+                process.exit(1);
+                return;
+            }
+            const data = parse_result_body(res.body);
+            print(data, {json: opts.json, pretty: opts.pretty,
+                output: opts.output});
+            return;
+        } catch(e) {
+            spinner.stop();
+            console.error(
+                `Failed to scrape (collector ${collector_id}): `
+                +`${(e as Error).message}`);
+            process.exit(1);
+            return;
+        }
+    }
+    let timeout = 600;
+    try {
+        timeout = parse_timeout(opts.timeout);
+    } catch(e) {
+        fail((e as Error).message);
+        return;
+    }
+    const trigger_spinner = start_spinner('Triggering scrape...');
+    let response_id = '';
+    try {
+        const trigger_query = build_run_query(collector_id, opts);
+        const trigger = await post<Trigger_immediate_response>(
+            api_key,
+            `${TRIGGER_IMMEDIATE_ENDPOINT}?${trigger_query}`,
+            build_run_request(url),
+            {timing: opts.timing}
+        );
+        trigger_spinner.stop();
+        if (!trigger.response_id)
+        {
+            console.error(
+                `Failed to trigger scraper (collector ${collector_id}): `
+                +'missing response_id in trigger response.');
+            process.exit(1);
+            return;
+        }
+        response_id = trigger.response_id;
+        console.error(dim(`Triggered (response_id: ${response_id})`));
+    } catch(e) {
+        trigger_spinner.stop();
         console.error(
-            `${(e as Error).message} (collector ${collector_id})`);
+            `Failed to trigger scraper (collector ${collector_id}): `
+            +`${(e as Error).message}`);
+        process.exit(1);
+        return;
+    }
+    const poll_spinner = start_spinner('Waiting for results...');
+    try {
+        const poll_result = await poll_until<Raw_response>({
+            timeout_seconds: timeout,
+            fetch_once: ()=>fetch_raw(api_key,
+                `${GET_RESULT_ENDPOINT}?response_id=`
+                +encodeURIComponent(response_id),
+                {method: 'GET'}),
+            get_status: r=>classify_result(r.status, r.body),
+            running_statuses: [PENDING_SENTINEL],
+            timeout_label: `results (response_id ${response_id})`,
+            on_running: ({attempt, timeout_seconds})=>{
+                console.error(dim(
+                    `Polling (attempt ${attempt}/${timeout_seconds})`));
+            },
+        });
+        poll_spinner.stop();
+        const data = parse_result_body(poll_result.result.body);
+        print(data, {json: opts.json, pretty: opts.pretty,
+            output: opts.output});
+    } catch(e) {
+        poll_spinner.stop();
+        const msg = (e as Error).message;
+        const suffix = msg.includes(response_id)
+            ? '' : ` (response_id ${response_id})`;
+        console.error(`${msg}${suffix}`);
         process.exit(1);
         return;
     }
@@ -194,9 +412,31 @@ const create_subcommand = new Command('create')
     .option('-k, --api-key <key>', 'Override API key')
     .action(handle_create_scraper);
 
+const run_subcommand = new Command('run')
+    .description('Run a Bright Data scraper on a URL and return the data')
+    .argument('<collector_id>',
+        'Collector ID of the scraper (returned by `scraper create`)')
+    .argument('<url>', 'URL to scrape')
+    .option('--sync',
+        'Use the synchronous /dca/crawl endpoint (server-side 25-50s cap)')
+    .option('--sync-timeout <seconds>',
+        `Sync-mode server timeout (${SYNC_TIMEOUT_MIN}-${SYNC_TIMEOUT_MAX}, `
+        +`default ${SYNC_TIMEOUT_DEFAULT})`)
+    .option('--timeout <seconds>',
+        'Polling timeout in async mode (default: 600)')
+    .option('--name <name>', 'Human-readable job name')
+    .option('--version <version>', 'Scraper version (e.g. "dev")')
+    .option('-o, --output <path>', 'Write output to file')
+    .option('--json', 'Force JSON output')
+    .option('--pretty', 'Pretty-print JSON output')
+    .option('--timing', 'Show request timing')
+    .option('-k, --api-key <key>', 'Override API key')
+    .action(handle_run_scraper);
+
 const scraper_command = new Command('scraper')
     .description('Build and manage Bright Data scrapers')
-    .addCommand(create_subcommand);
+    .addCommand(create_subcommand)
+    .addCommand(run_subcommand);
 
 export {
     scraper_command,
@@ -205,4 +445,10 @@ export {
     build_ai_request,
     extract_progress_status,
     format_create_summary,
+    handle_run_scraper,
+    build_run_request,
+    build_run_query,
+    classify_result,
+    parse_result_body,
+    parse_sync_timeout,
 };
