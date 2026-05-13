@@ -7,8 +7,6 @@ const mocks = vi.hoisted(()=>({
     stop: vi.fn(),
     start: vi.fn(),
     print: vi.fn(),
-    print_table: vi.fn(),
-    success: vi.fn(),
     fail: vi.fn((msg: string)=>{ throw new Error(`fail:${msg}`); }),
     dim: vi.fn((msg: string)=>msg),
     parse_timeout: vi.fn(),
@@ -30,8 +28,6 @@ vi.mock('../../utils/spinner', ()=>({
 
 vi.mock('../../utils/output', ()=>({
     print: mocks.print,
-    print_table: mocks.print_table,
-    success: mocks.success,
     fail: mocks.fail,
     dim: mocks.dim,
     is_tty: false,
