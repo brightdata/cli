@@ -8,6 +8,7 @@ const mocks = vi.hoisted(()=>({
     start: vi.fn(),
     print: vi.fn(),
     fail: vi.fn((msg: string)=>{ throw new Error(`fail:${msg}`); }),
+    success: vi.fn(),
     dim: vi.fn((msg: string)=>msg),
     parse_timeout: vi.fn(),
     poll_until: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('../../utils/spinner', ()=>({
 vi.mock('../../utils/output', ()=>({
     print: mocks.print,
     fail: mocks.fail,
+    success: mocks.success,
     dim: mocks.dim,
     is_tty: false,
 }));
@@ -243,6 +245,24 @@ describe('commands/scraper', ()=>{
             await handle_create_scraper('https://x.com', 'd', {});
             const messages = error.mock.calls.map(c=>String(c[0])).join('\n');
             expect(messages).toContain('failed');
+            expect(messages).toContain('c_abc');
+            exit.mockRestore();
+            error.mockRestore();
+        });
+
+        it('surfaces collector_id when polling times out', async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_abc'})
+                .mockResolvedValueOnce({id: 'ia_xyz', queued: false});
+            mocks.poll_until.mockRejectedValue(
+                new Error('Timeout after 600 seconds waiting for AI generation'));
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_create_scraper('https://x.com', 'd', {});
+            const messages = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(messages).toContain('Timeout');
             expect(messages).toContain('c_abc');
             exit.mockRestore();
             error.mockRestore();
