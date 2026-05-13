@@ -368,6 +368,8 @@ brightdata scraper run <collector_id> <url> [options]
 
 By default the command uses the async flow: it triggers `/dca/trigger_immediate`, gets back a `response_id`, and polls `/dca/get_result` until the data is ready. Use `--sync` for one-shot scrapes that you expect to finish within ~50 seconds; on a sync server-side timeout the command exits with the `response_id` so you can re-run without `--sync` to poll for the result.
 
+If a URL expands to more pages than the realtime job limit allows (e.g. paginated listings, infinite scroll), the CLI automatically falls back to the batch endpoint (`/dca/trigger` → poll `/dca/dataset`). The fallback prints a one-line notice and adjusts the poll interval and timeout for the longer batch wait. No flag required.
+
 **Examples**
 
 ```bash
