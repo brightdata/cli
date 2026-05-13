@@ -47,6 +47,33 @@ type Scraper_create_opts = {
     apiKey?: string;
 };
 
+type Run_request = {
+    url: string;
+};
+
+type Trigger_immediate_response = {
+    response_id: string;
+};
+
+type Sync_timeout_response = {
+    error: string;
+    message?: string;
+    response_id: string;
+};
+
+type Scraper_run_opts = {
+    sync?: boolean;
+    syncTimeout?: string;
+    timeout?: string;
+    name?: string;
+    version?: string;
+    output?: string;
+    json?: boolean;
+    pretty?: boolean;
+    timing?: boolean;
+    apiKey?: string;
+};
+
 export type {
     Deliver_webhook,
     Create_template_request,
@@ -55,4 +82,8 @@ export type {
     Trigger_ai_response,
     Ai_progress_response,
     Scraper_create_opts,
+    Run_request,
+    Trigger_immediate_response,
+    Sync_timeout_response,
+    Scraper_run_opts,
 };
