@@ -173,6 +173,13 @@ describe('commands/scraper', ()=>{
                 {timing: undefined}
             );
             expect(mocks.poll_until).toHaveBeenCalledTimes(1);
+            expect(mocks.poll_until).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    timeout_seconds: 600,
+                    running_statuses: ['__running__'],
+                    timeout_label: expect.stringContaining('c_abc'),
+                })
+            );
             expect(mocks.print).toHaveBeenCalledWith(
                 progress,
                 {json: undefined, pretty: undefined, output: undefined}

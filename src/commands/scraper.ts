@@ -144,6 +144,8 @@ const handle_create_scraper = async(
             },
         });
         poll_spinner.stop();
+        console.error(dim(
+            `Done in ${poll_result.attempts} poll attempts.`));
         const progress = poll_result.result;
         if (progress.status != DONE_STATUS)
         {
