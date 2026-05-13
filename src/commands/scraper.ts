@@ -174,8 +174,29 @@ const handle_create_scraper = async(
     }
 };
 
+const create_subcommand = new Command('create')
+    .description(
+        'Build a scraper from a natural-language description using AI')
+    .argument('<url>', 'Target URL to scrape')
+    .argument('<description>',
+        'Natural-language description of data to extract (max 500 chars)')
+    .option('--name <name>',
+        'Scraper template name (default: cli-scraper-<timestamp>)')
+    .option('--deliver-webhook <url>',
+        'Webhook URL for the deliver stub '
+        +'(default: https://example.com/webhook)')
+    .option('--timeout <seconds>',
+        'Polling timeout in seconds (default: 600)')
+    .option('-o, --output <path>', 'Write output to file')
+    .option('--json', 'Force JSON output')
+    .option('--pretty', 'Pretty-print JSON output')
+    .option('--timing', 'Show request timing')
+    .option('-k, --api-key <key>', 'Override API key')
+    .action(handle_create_scraper);
+
 const scraper_command = new Command('scraper')
-    .description('Build and manage Bright Data scrapers');
+    .description('Build and manage Bright Data scrapers')
+    .addCommand(create_subcommand);
 
 export {
     scraper_command,
