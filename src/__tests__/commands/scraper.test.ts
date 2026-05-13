@@ -43,6 +43,7 @@ import {
     build_ai_request,
     extract_progress_status,
     format_create_summary,
+    handle_create_scraper,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -131,6 +132,113 @@ describe('commands/scraper', ()=>{
             const out = format_create_summary('c_abc', 'name', {status: 'done'});
             expect(out).toContain('c_abc');
             expect(out).toContain('0');
+        });
+    });
+
+    describe('handle_create_scraper', ()=>{
+        it('chains create → trigger → poll and prints JSON in non-TTY',
+            async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_abc', name: 'cli-scraper-1'})
+                .mockResolvedValueOnce({id: 'ia_xyz', queued: false});
+            const progress = {
+                step: 'preview_picker',
+                completed_steps: ['a', 'b'],
+                status: 'done',
+            };
+            mocks.poll_until.mockResolvedValue({
+                result: progress,
+                attempts: 4,
+            });
+            await handle_create_scraper(
+                'https://example.com/p/1',
+                'extract title',
+                {}
+            );
+            expect(mocks.post).toHaveBeenNthCalledWith(
+                1,
+                'api_key',
+                '/dca/collector',
+                expect.objectContaining({
+                    deliver: expect.objectContaining({type: 'webhook'}),
+                }),
+                {timing: undefined}
+            );
+            expect(mocks.post).toHaveBeenNthCalledWith(
+                2,
+                'api_key',
+                '/dca/collectors/c_abc/automate_template',
+                {description: 'extract title',
+                    urls: ['https://example.com/p/1']},
+                {timing: undefined}
+            );
+            expect(mocks.poll_until).toHaveBeenCalledTimes(1);
+            expect(mocks.print).toHaveBeenCalledWith(
+                progress,
+                {json: undefined, pretty: undefined, output: undefined}
+            );
+        });
+
+        it('passes --json through to print', async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_abc'})
+                .mockResolvedValueOnce({id: 'ia_xyz', queued: false});
+            const progress = {status: 'done', completed_steps: []};
+            mocks.poll_until.mockResolvedValue({
+                result: progress, attempts: 1});
+            await handle_create_scraper('https://x.com', 'd', {json: true});
+            expect(mocks.print).toHaveBeenCalledWith(
+                progress,
+                {json: true, pretty: undefined, output: undefined}
+            );
+        });
+
+        it('exits when template creation has no id', async()=>{
+            mocks.post.mockResolvedValueOnce({});
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_create_scraper('https://x.com', 'd', {});
+            expect(mocks.fail).toHaveBeenCalled();
+            expect(mocks.post).toHaveBeenCalledTimes(1);
+            exit.mockRestore();
+            error.mockRestore();
+        });
+
+        it('surfaces collector_id when AI trigger fails', async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_abc'})
+                .mockRejectedValueOnce(new Error('Error: 422 bad input'));
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_create_scraper('https://x.com', 'd', {});
+            const messages = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(messages).toContain('c_abc');
+            exit.mockRestore();
+            error.mockRestore();
+        });
+
+        it('exits when poll returns non-done terminal status', async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_abc'})
+                .mockResolvedValueOnce({id: 'ia_xyz', queued: false});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'failed', completed_steps: []},
+                attempts: 2,
+            });
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_create_scraper('https://x.com', 'd', {});
+            const messages = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(messages).toContain('failed');
+            expect(messages).toContain('c_abc');
+            exit.mockRestore();
+            error.mockRestore();
         });
     });
 });
