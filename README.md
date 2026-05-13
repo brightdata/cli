@@ -25,6 +25,7 @@
 | `brightdata scrape` | Scrape any URL — bypasses CAPTCHAs, JS rendering, anti-bot protections |
 | `brightdata search` | Google / Bing / Yandex search with structured JSON output |
 | `brightdata discover` | AI-powered web discovery - find and rank results by intent with optional full-page content |
+| `brightdata scraper create` | Build a Bright Data scraper from a natural-language description using AI |
 | `brightdata pipelines` | Extract structured data from 40+ platforms (Amazon, LinkedIn, TikTok…) |
 | `brightdata browser` | Control a real browser via Bright Data's Scraping Browser — navigate, snapshot, click, type, and more |
 | `brightdata zones` | List and inspect your Bright Data proxy zones |
@@ -46,6 +47,7 @@
   - [scrape](#scrape)
   - [search](#search)
   - [discover](#discover)
+  - [scraper create](#scraper-create)
   - [pipelines](#pipelines)
   - [browser](#browser)
   - [status](#status)
@@ -298,6 +300,46 @@ brightdata discover "AI trends" --num-results 10 --pretty -o results.json
 
 # Pipe-friendly — redirected stdout outputs JSON automatically
 brightdata discover "AI trends" --include-content --num-results 3 > results.json
+```
+
+---
+
+### `scraper create`
+
+Build a Bright Data scraper from a natural-language description using AI.
+
+```bash
+brightdata scraper create <url> <description> [options]
+```
+
+| Flag | Description |
+|---|---|
+| `--name <name>` | Scraper template name (default: `cli-scraper-<timestamp>`) |
+| `--deliver-webhook <url>` | Webhook URL for the deliver stub (default: `https://example.com/webhook`) |
+| `--timeout <seconds>` | Polling timeout in seconds (default: `600`) |
+| `-o, --output <path>` | Write output to file |
+| `--json` / `--pretty` | JSON output (raw / indented) |
+| `--timing` | Show request timing |
+| `-k, --api-key <key>` | Override API key |
+
+> **Note:** The scraper is created with a placeholder webhook delivery target (`https://example.com/webhook`). You can reconfigure the actual delivery endpoint in the [Bright Data web UI](https://brightdata.com/cp/scrapers) after creation.
+
+**Examples**
+
+```bash
+# Build a scraper for a product page
+brightdata scraper create https://example.com/product/1 \
+    "Extract title, price, and image URL from this product page"
+
+# Name the scraper and save the full AI output to a file
+brightdata scraper create https://example.com/product/1 \
+    "Extract title, price, and image URL from this product page" \
+    --name my-product-scraper --pretty -o scraper-output.json
+
+# Use a custom webhook delivery URL
+brightdata scraper create https://example.com/product/1 \
+    "Extract title, price, and image URL from this product page" \
+    --deliver-webhook https://my-app.com/ingest
 ```
 
 ---
