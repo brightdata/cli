@@ -15,6 +15,7 @@ import type {
     Run_request,
     Trigger_immediate_response,
     Scraper_run_opts,
+    Batch_trigger_response,
 } from '../types/scraper';
 
 const CREATE_TEMPLATE_ENDPOINT = '/dca/collector';
@@ -25,11 +26,16 @@ const DONE_STATUS = 'done';
 const TRIGGER_IMMEDIATE_ENDPOINT = '/dca/trigger_immediate';
 const GET_RESULT_ENDPOINT = '/dca/get_result';
 const SYNC_CRAWL_ENDPOINT = '/dca/crawl';
+const BATCH_TRIGGER_ENDPOINT = '/dca/trigger';
+const BATCH_DATASET_ENDPOINT = '/dca/dataset';
 const SYNC_TIMEOUT_MIN = 25;
 const SYNC_TIMEOUT_MAX = 50;
 const SYNC_TIMEOUT_DEFAULT = 50;
 const READY_SENTINEL = '__ready__';
 const PENDING_SENTINEL = '__pending__';
+const BATCH_POLL_INTERVAL_MS = 10_000;
+const BATCH_TIMEOUT_DEFAULT = 3600;
+const REALTIME_LIMIT_MARKER = 'realtime job limit';
 
 const build_template_request = (
     opts: Scraper_create_opts
@@ -247,6 +253,41 @@ const parse_result_body = (body: string): unknown=>{
     }
 };
 
+const is_realtime_page_limit_error = (data: unknown): boolean=>{
+    if (!Array.isArray(data) || data.length == 0)
+        return false;
+    for (const item of data)
+    {
+        if (!item || typeof item != 'object')
+            return false;
+        const err = (item as {error?: unknown}).error;
+        if (typeof err != 'string')
+            return false;
+        if (err.toLowerCase().includes(REALTIME_LIMIT_MARKER))
+            return true;
+    }
+    return false;
+};
+
+const classify_dataset = (status: number, body: string): string=>{
+    if (status == 202)
+        return PENDING_SENTINEL;
+    if (status < 200 || status >= 300)
+        return PENDING_SENTINEL;
+    const trimmed = body.trim();
+    if (!trimmed)
+        return PENDING_SENTINEL;
+    try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed == 'object' && !Array.isArray(parsed)
+            && (parsed as {status?: unknown}).status == 'building')
+        {
+            return PENDING_SENTINEL;
+        }
+    } catch(_e) {}
+    return READY_SENTINEL;
+};
+
 type Raw_response = {
     status: number;
     body: string;
@@ -271,6 +312,86 @@ const fetch_raw = async(
     const res = await fetch(url, {...init, headers});
     const body = await res.text();
     return {status: res.status, body};
+};
+
+const run_batch = async(
+    api_key: string,
+    collector_id: string,
+    url: string,
+    opts: Scraper_run_opts
+)=>{
+    const timeout_raw = opts.timeout ?? String(BATCH_TIMEOUT_DEFAULT);
+    let timeout = BATCH_TIMEOUT_DEFAULT;
+    try {
+        timeout = parse_timeout(timeout_raw);
+    } catch(e) {
+        fail((e as Error).message);
+        return;
+    }
+    console.error(dim(
+        'Realtime page limit exceeded — switching to batch mode...'));
+    const trigger_spinner = start_spinner('Submitting batch job...');
+    let collection_id = '';
+    try {
+        const query = build_run_query(collector_id, opts);
+        const trigger = await post<Batch_trigger_response>(
+            api_key,
+            `${BATCH_TRIGGER_ENDPOINT}?${query}`,
+            [build_run_request(url)],
+            {timing: opts.timing}
+        );
+        trigger_spinner.stop();
+        if (!trigger.collection_id)
+        {
+            console.error(
+                `Failed to submit batch job (collector ${collector_id}): `
+                +'missing collection_id.');
+            process.exit(1);
+            return;
+        }
+        collection_id = trigger.collection_id;
+        const eta = trigger.start_eta
+            ? ` (ETA: ${trigger.start_eta})` : '';
+        console.error(dim(
+            `Batch job: ${collection_id}${eta}`));
+    } catch(e) {
+        trigger_spinner.stop();
+        console.error(
+            `Failed to submit batch job (collector ${collector_id}): `
+            +`${(e as Error).message}`);
+        process.exit(1);
+        return;
+    }
+    const poll_spinner = start_spinner('Collecting (batch)...');
+    try {
+        const poll_result = await poll_until<Raw_response>({
+            timeout_seconds: timeout,
+            interval_ms: BATCH_POLL_INTERVAL_MS,
+            fetch_once: ()=>fetch_raw(api_key,
+                `${BATCH_DATASET_ENDPOINT}?id=`
+                +encodeURIComponent(collection_id),
+                {method: 'GET'}),
+            get_status: r=>classify_dataset(r.status, r.body),
+            running_statuses: [PENDING_SENTINEL],
+            timeout_label: `batch results (collection_id ${collection_id})`,
+            on_running: ({attempt, timeout_seconds})=>{
+                console.error(dim(
+                    `Polling batch (attempt ${attempt}/${timeout_seconds})`));
+            },
+        });
+        poll_spinner.stop();
+        const data = parse_result_body(poll_result.result.body);
+        print(data, {json: opts.json, pretty: opts.pretty,
+            output: opts.output});
+    } catch(e) {
+        poll_spinner.stop();
+        const msg = (e as Error).message;
+        const suffix = msg.includes(collection_id)
+            ? '' : ` (collection_id ${collection_id})`;
+        console.error(`${msg}${suffix}`);
+        process.exit(1);
+        return;
+    }
 };
 
 const handle_run_scraper = async(
@@ -321,6 +442,11 @@ const handle_run_scraper = async(
                 return;
             }
             const data = parse_result_body(res.body);
+            if (is_realtime_page_limit_error(data))
+            {
+                await run_batch(api_key, collector_id, url, opts);
+                return;
+            }
             print(data, {json: opts.json, pretty: opts.pretty,
                 output: opts.output});
             return;
@@ -387,6 +513,11 @@ const handle_run_scraper = async(
         });
         poll_spinner.stop();
         const data = parse_result_body(poll_result.result.body);
+        if (is_realtime_page_limit_error(data))
+        {
+            await run_batch(api_key, collector_id, url, opts);
+            return;
+        }
         print(data, {json: opts.json, pretty: opts.pretty,
             output: opts.output});
     } catch(e) {
@@ -459,4 +590,6 @@ export {
     classify_result,
     parse_result_body,
     parse_sync_timeout,
+    is_realtime_page_limit_error,
+    classify_dataset,
 };

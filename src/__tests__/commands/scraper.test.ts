@@ -56,6 +56,8 @@ import {
     classify_result,
     parse_result_body,
     parse_sync_timeout,
+    is_realtime_page_limit_error,
+    classify_dataset,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -489,6 +491,137 @@ describe('commands/scraper', ()=>{
             ).rejects.toThrow(/25 and 50/);
             expect(mocks.fail).toHaveBeenCalledWith(
                 expect.stringContaining('25 and 50'));
+        });
+    });
+
+    describe('is_realtime_page_limit_error', ()=>{
+        it('detects the page-limit error shape', ()=>{
+            expect(is_realtime_page_limit_error([{
+                input: {url: 'https://x.com'},
+                error: 'Request generated 501 pages and exceeded '
+                    +'realtime job limit of 51 pages',
+            }])).toBe(true);
+        });
+
+        it('is case-insensitive on the marker', ()=>{
+            expect(is_realtime_page_limit_error([{
+                error: 'EXCEEDED REALTIME JOB LIMIT',
+            }])).toBe(true);
+        });
+
+        it('returns false for normal result arrays', ()=>{
+            expect(is_realtime_page_limit_error([{title: 'ok'}]))
+                .toBe(false);
+            expect(is_realtime_page_limit_error([{a: 1}, {b: 2}]))
+                .toBe(false);
+        });
+
+        it('returns false for objects, strings, empty arrays', ()=>{
+            expect(is_realtime_page_limit_error({error: 'x'})).toBe(false);
+            expect(is_realtime_page_limit_error([])).toBe(false);
+            expect(is_realtime_page_limit_error(null)).toBe(false);
+            expect(is_realtime_page_limit_error('string')).toBe(false);
+        });
+    });
+
+    describe('classify_dataset', ()=>{
+        it('treats 202 as pending', ()=>{
+            expect(classify_dataset(202, '')).toBe('__pending__');
+        });
+
+        it('treats {status: "building"} body as pending', ()=>{
+            expect(classify_dataset(200,
+                '{"status":"building","message":"try again"}'))
+                .toBe('__pending__');
+        });
+
+        it('treats a data array as ready', ()=>{
+            expect(classify_dataset(200, '[{"Title":"x"}]'))
+                .toBe('__ready__');
+        });
+
+        it('treats empty body as pending', ()=>{
+            expect(classify_dataset(200, '   ')).toBe('__pending__');
+        });
+    });
+
+    describe('handle_run_scraper auto-fallback to batch', ()=>{
+        let fetch_spy: ReturnType<typeof vi.spyOn>;
+
+        beforeEach(()=>{
+            fetch_spy = vi.spyOn(global, 'fetch') as never;
+        });
+
+        afterEach(()=>{
+            fetch_spy.mockRestore();
+        });
+
+        it('falls back to batch when realtime returns page-limit error',
+            async()=>{
+            const limit_error = JSON.stringify([{
+                input: {url: 'https://x.com/p/1'},
+                error: 'Request generated 501 pages and '
+                    +'exceeded realtime job limit of 51 pages',
+            }]);
+            mocks.post
+                .mockResolvedValueOnce({response_id: 'r_xyz'})
+                .mockResolvedValueOnce({collection_id: 'd_batch',
+                    start_eta: '2026-05-13T12:00:00Z'});
+            fetch_spy.mockImplementation(()=>Promise.resolve({
+                status: 200,
+                text: ()=>Promise.resolve('[{"Title":"final"}]'),
+            } as unknown as Response));
+            mocks.poll_until
+                .mockImplementationOnce(async(o: never)=>{
+                    const cfg = o as {fetch_once: ()=>Promise<unknown>};
+                    return {result: {status: 200, body: limit_error},
+                        attempts: 1, last_status: '__ready__'};
+                })
+                .mockImplementationOnce(async(o: never)=>{
+                    const cfg = o as {fetch_once: ()=>Promise<unknown>};
+                    const r = await cfg.fetch_once();
+                    return {result: r, attempts: 1,
+                        last_status: '__ready__'};
+                });
+            await handle_run_scraper('c_abc', 'https://x.com/p/1', {});
+            expect(mocks.post).toHaveBeenCalledTimes(2);
+            const second_call = mocks.post.mock.calls[1];
+            expect(String(second_call[1])).toMatch(
+                /\/dca\/trigger\?collector=c_abc/);
+            expect(second_call[2]).toEqual([{url: 'https://x.com/p/1'}]);
+            expect(mocks.print).toHaveBeenCalledWith(
+                [{Title: 'final'}],
+                {json: undefined, pretty: undefined, output: undefined}
+            );
+        });
+
+        it('falls back to batch from --sync mode too', async()=>{
+            const limit_error = JSON.stringify([{
+                error: 'exceeded realtime job limit',
+            }]);
+            fetch_spy.mockImplementationOnce(()=>Promise.resolve({
+                status: 200,
+                text: ()=>Promise.resolve(limit_error),
+            } as unknown as Response));
+            mocks.post.mockResolvedValueOnce({collection_id: 'd_batch'});
+            fetch_spy.mockImplementationOnce(()=>Promise.resolve({
+                status: 200,
+                text: ()=>Promise.resolve('[{"ok":1}]'),
+            } as unknown as Response));
+            mocks.poll_until.mockImplementationOnce(async(o: never)=>{
+                const cfg = o as {fetch_once: ()=>Promise<unknown>};
+                const r = await cfg.fetch_once();
+                return {result: r, attempts: 1, last_status: '__ready__'};
+            });
+            await handle_run_scraper('c_abc', 'https://x.com',
+                {sync: true});
+            expect(mocks.post).toHaveBeenCalledTimes(1);
+            expect(String(mocks.post.mock.calls[0][1])).toMatch(
+                /\/dca\/trigger\?collector=c_abc/);
+            expect(mocks.print).toHaveBeenCalledWith(
+                [{ok: 1}],
+                {json: undefined, pretty: undefined, output: undefined}
+            );
         });
     });
 });

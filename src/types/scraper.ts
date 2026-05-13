@@ -74,6 +74,16 @@ type Scraper_run_opts = {
     apiKey?: string;
 };
 
+type Batch_trigger_response = {
+    collection_id: string;
+    start_eta?: string;
+};
+
+type Batch_pending_response = {
+    status: string;
+    message?: string;
+};
+
 export type {
     Deliver_webhook,
     Create_template_request,
@@ -86,4 +96,6 @@ export type {
     Trigger_immediate_response,
     Sync_timeout_response,
     Scraper_run_opts,
+    Batch_trigger_response,
+    Batch_pending_response,
 };
