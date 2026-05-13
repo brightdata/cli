@@ -26,6 +26,7 @@
 | `brightdata search` | Google / Bing / Yandex search with structured JSON output |
 | `brightdata discover` | AI-powered web discovery - find and rank results by intent with optional full-page content |
 | `brightdata scraper create` | Build a Bright Data scraper from a natural-language description using AI |
+| `brightdata scraper run` | Run a Bright Data scraper on a URL and return the data |
 | `brightdata pipelines` | Extract structured data from 40+ platforms (Amazon, LinkedIn, TikTok…) |
 | `brightdata browser` | Control a real browser via Bright Data's Scraping Browser — navigate, snapshot, click, type, and more |
 | `brightdata zones` | List and inspect your Bright Data proxy zones |
@@ -48,6 +49,7 @@
   - [search](#search)
   - [discover](#discover)
   - [scraper create](#scraper-create)
+  - [scraper run](#scraper-run)
   - [pipelines](#pipelines)
   - [browser](#browser)
   - [status](#status)
@@ -340,6 +342,48 @@ brightdata scraper create https://example.com/product/1 \
 brightdata scraper create https://example.com/product/1 \
     "Extract title, price, and image URL from this product page" \
     --deliver-webhook https://my-app.com/ingest
+```
+
+---
+
+### `scraper run`
+
+Run a scraper (built with `scraper create` or in the web UI) against a URL and get the extracted data.
+
+```bash
+brightdata scraper run <collector_id> <url> [options]
+```
+
+| Flag | Description |
+|---|---|
+| `--sync` | Use the synchronous `/dca/crawl` endpoint (server-side cap of 25–50s) |
+| `--sync-timeout <seconds>` | Sync-mode server timeout, `25`–`50` (default: `50`) |
+| `--timeout <seconds>` | Async polling timeout (default: `600`) |
+| `--name <name>` | Human-readable job name |
+| `--version <version>` | Scraper version (e.g. `dev`) |
+| `-o, --output <path>` | Write output to file |
+| `--json` / `--pretty` | JSON output (raw / indented) |
+| `--timing` | Show request timing |
+| `-k, --api-key <key>` | Override API key |
+
+By default the command uses the async flow: it triggers `/dca/trigger_immediate`, gets back a `response_id`, and polls `/dca/get_result` until the data is ready. Use `--sync` for one-shot scrapes that you expect to finish within ~50 seconds; on a sync server-side timeout the command exits with the `response_id` so you can re-run without `--sync` to poll for the result.
+
+**Examples**
+
+```bash
+# Default: async + poll until results arrive
+brightdata scraper run c_mp3tuab31lswoxvpws https://www.amazon.com/dp/B08N5WRWNW
+
+# Save pretty-printed results to a file
+brightdata scraper run c_mp3tuab31lswoxvpws https://www.amazon.com/dp/B08N5WRWNW \
+    --pretty -o product.json
+
+# Sync mode for fast pages
+brightdata scraper run c_mp3tuab31lswoxvpws https://example.com/p/1 --sync
+
+# Sync with a shorter server timeout and a job name
+brightdata scraper run c_mp3tuab31lswoxvpws https://example.com/p/1 \
+    --sync --sync-timeout 30 --name first-test
 ```
 
 ---
