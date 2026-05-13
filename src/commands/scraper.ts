@@ -227,6 +227,14 @@ const classify_result = (status: number, body: string): string=>{
     const trimmed = body.trim();
     if (!trimmed || trimmed == 'null')
         return PENDING_SENTINEL;
+    try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed == 'object' && !Array.isArray(parsed)
+            && (parsed as {pending?: unknown}).pending === true)
+        {
+            return PENDING_SENTINEL;
+        }
+    } catch(_e) {}
     return READY_SENTINEL;
 };
 

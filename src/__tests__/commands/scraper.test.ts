@@ -325,6 +325,18 @@ describe('commands/scraper', ()=>{
             ()=>{
             expect(classify_result(404, 'not found')).toBe('__pending__');
         });
+
+        it('marks {"pending": true} body as pending', ()=>{
+            expect(classify_result(200,
+                '{"pending":true,"message":"Request is pending"}'))
+                .toBe('__pending__');
+        });
+
+        it('still ready when body has other shape', ()=>{
+            expect(classify_result(200, '{"price":99,"pending":false}'))
+                .toBe('__ready__');
+            expect(classify_result(200, '[{"a":1}]')).toBe('__ready__');
+        });
     });
 
     describe('parse_result_body', ()=>{
