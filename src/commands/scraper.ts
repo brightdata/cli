@@ -12,6 +12,7 @@ import type {
     Trigger_ai_response,
     Ai_progress_response,
     Scraper_create_opts,
+    Create_envelope,
     Run_request,
     Trigger_immediate_response,
     Scraper_run_opts,
@@ -83,6 +84,43 @@ const format_create_summary = (
     return lines.join('\n');
 };
 
+// PR-2: every termination path of `scraper create` writes this same
+// envelope shape to -o. Solves the broken `jq -r '.collector_id'`
+// recipe in references/recipes.md (today's -o file contains only the
+// final progress payload, with no id field).
+const build_create_envelope = (params: {
+    collector_id: string;
+    name: string;
+    status: string;
+    progress?: Ai_progress_response;
+    created_at?: string;
+    error?: string;
+}): Create_envelope=>({
+    collector_id: params.collector_id,
+    name: params.name,
+    status: params.status,
+    completed_steps: params.progress?.completed_steps ?? [],
+    view_url: `https://brightdata.com/cp/scrapers/${params.collector_id}`,
+    ...(params.created_at ? {created_at: params.created_at} : {}),
+    ...(params.error ? {error: params.error} : {}),
+});
+
+// Write the envelope (or, in --legacy-output mode, the bare progress
+// payload) to wherever the user asked. Centralised so success and
+// every failure path share one I/O code path.
+const emit_create_output = (
+    envelope: Create_envelope,
+    progress: Ai_progress_response|null,
+    opts: Scraper_create_opts
+): void=>{
+    const print_opts = {json: opts.json, pretty: opts.pretty,
+        output: opts.output};
+    const payload = opts.legacyOutput && progress
+        ? (progress as unknown) : envelope;
+    if (opts.json || opts.pretty || opts.output || !is_tty)
+        print(payload, print_opts);
+};
+
 const handle_create_scraper = async(
     url: string,
     description: string,
@@ -100,6 +138,7 @@ const handle_create_scraper = async(
     const create_spinner = start_spinner('Creating scraper template...');
     let collector_id = '';
     let scraper_name = template_body.name;
+    let created_at: string|undefined;
     try {
         const template = await post<Create_template_response>(
             api_key,
@@ -110,11 +149,14 @@ const handle_create_scraper = async(
         create_spinner.stop();
         if (!template.id)
         {
+            // Template POST didn't return an id — no collector_id to
+            // envelope, so no -o file to write. Same as today.
             fail('Failed to create scraper template (missing id).');
             return;
         }
         collector_id = template.id;
         scraper_name = template.name ?? template_body.name;
+        created_at = template.created;
         console.error(dim(`Template created: ${collector_id}`));
     } catch(e) {
         create_spinner.stop();
@@ -134,9 +176,23 @@ const handle_create_scraper = async(
         trigger_spinner.stop();
     } catch(e) {
         trigger_spinner.stop();
+        const msg = (e as Error).message;
         console.error(
             `Failed to start AI generation for collector `
-            +`${collector_id}: ${(e as Error).message}`
+            +`${collector_id}: ${msg}`
+        );
+        // PR-2: write the envelope even on failure so the user's
+        // automation can read collector_id + status from the file.
+        emit_create_output(
+            build_create_envelope({
+                collector_id,
+                name: scraper_name,
+                status: 'ai_trigger_failed',
+                created_at,
+                error: msg,
+            }),
+            null,
+            opts
         );
         process.exit(1);
         return;
@@ -171,16 +227,36 @@ const handle_create_scraper = async(
                 `AI generation failed (collector ${collector_id}, `
                 +`status: ${progress.status}).`
             );
+            emit_create_output(
+                build_create_envelope({
+                    collector_id,
+                    name: scraper_name,
+                    status: progress.status,
+                    progress,
+                    created_at,
+                    error: `AI generation finished with status `
+                        +`"${progress.status}".`,
+                }),
+                progress,
+                opts
+            );
             process.exit(1);
             return;
         }
-        const print_opts = {json: opts.json, pretty: opts.pretty,
-            output: opts.output};
+        // Success path.
+        emit_create_output(
+            build_create_envelope({
+                collector_id,
+                name: scraper_name,
+                status: progress.status,
+                progress,
+                created_at,
+            }),
+            progress,
+            opts
+        );
         if (opts.json || opts.pretty || opts.output || !is_tty)
-        {
-            print(progress, print_opts);
             return;
-        }
         success(format_create_summary(
             collector_id, scraper_name, progress));
     } catch(e) {
@@ -189,6 +265,17 @@ const handle_create_scraper = async(
         const suffix = msg.includes(collector_id)
             ? '' : ` (collector ${collector_id})`;
         console.error(`${msg}${suffix}`);
+        emit_create_output(
+            build_create_envelope({
+                collector_id,
+                name: scraper_name,
+                status: 'poll_failed',
+                created_at,
+                error: msg,
+            }),
+            null,
+            opts
+        );
         process.exit(1);
         return;
     }
@@ -547,6 +634,10 @@ const create_subcommand = new Command('create')
     .option('-o, --output <path>', 'Write output to file')
     .option('--json', 'Force JSON output')
     .option('--pretty', 'Pretty-print JSON output')
+    .option('--legacy-output',
+        'Emit the bare AI-progress payload (pre-v0.3 shape) instead '
+        +'of the new {collector_id, name, status, ...} envelope. '
+        +'For one-version migration only.')
     .option('--timing', 'Show request timing')
     .option('-k, --api-key <key>', 'Override API key')
     .action(handle_create_scraper);
@@ -584,6 +675,8 @@ export {
     build_ai_request,
     extract_progress_status,
     format_create_summary,
+    build_create_envelope,
+    emit_create_output,
     handle_run_scraper,
     build_run_request,
     build_run_query,

@@ -50,6 +50,7 @@ import {
     extract_progress_status,
     format_create_summary,
     handle_create_scraper,
+    build_create_envelope,
     handle_run_scraper,
     build_run_request,
     build_run_query,
@@ -149,6 +150,218 @@ describe('commands/scraper', ()=>{
         });
     });
 
+    // PR-2: the envelope contract is the whole point of the PR.
+    // Lock the shape, the failure-path semantics, and the legacy
+    // escape hatch in one place.
+    describe('build_create_envelope (PR-2)', ()=>{
+        it('returns the documented success shape', ()=>{
+            const env = build_create_envelope({
+                collector_id: 'c_xyz',
+                name: 'product-v1',
+                status: 'done',
+                progress: {status: 'done',
+                    completed_steps: ['a', 'b', 'c']},
+                created_at: '2026-05-18T07:28:30Z',
+            });
+            expect(env).toEqual({
+                collector_id: 'c_xyz',
+                name: 'product-v1',
+                status: 'done',
+                completed_steps: ['a', 'b', 'c'],
+                view_url: 'https://brightdata.com/cp/scrapers/c_xyz',
+                created_at: '2026-05-18T07:28:30Z',
+            });
+        });
+
+        it('omits created_at when not known', ()=>{
+            const env = build_create_envelope({
+                collector_id: 'c_xyz',
+                name: 'n',
+                status: 'done',
+                progress: {status: 'done', completed_steps: []},
+            });
+            expect(env).not.toHaveProperty('created_at');
+        });
+
+        it('records the error message and partial steps on failure',
+            ()=>{
+            const env = build_create_envelope({
+                collector_id: 'c_xyz',
+                name: 'n',
+                status: 'ai_trigger_failed',
+                error: 'Cannot run more than 3 jobs in parallel',
+            });
+            expect(env.collector_id).toBe('c_xyz');
+            expect(env.status).toBe('ai_trigger_failed');
+            expect(env.error).toMatch(/parallel/);
+            expect(env.completed_steps).toEqual([]);
+            // view_url remains useful even on failure so the user
+            // can inspect the stub collector in the dashboard.
+            expect(env.view_url)
+                .toBe('https://brightdata.com/cp/scrapers/c_xyz');
+        });
+
+        it('still includes view_url on every termination path', ()=>{
+            for (const status of ['done', 'failed', 'ai_trigger_failed',
+                'poll_failed'])
+            {
+                const env = build_create_envelope({
+                    collector_id: 'c_xyz', name: 'n', status,
+                });
+                expect(env.view_url)
+                    .toBe('https://brightdata.com/cp/scrapers/c_xyz');
+            }
+        });
+    });
+
+    describe('handle_create_scraper envelope output (PR-2)', ()=>{
+        const setup_success = ()=>{
+            mocks.post
+                .mockResolvedValueOnce({
+                    id: 'c_xyz', name: 'product-v1',
+                    created: '2026-05-18T07:28:30Z',
+                })
+                .mockResolvedValueOnce({id: 'ia_xyz', queued: false});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done',
+                    completed_steps: ['a', 'b', 'c']},
+                attempts: 4,
+            });
+        };
+
+        it('writes the new envelope to -o on success', async()=>{
+            setup_success();
+            await handle_create_scraper(
+                'https://x.com/p', 'd',
+                {output: 'create.json', pretty: true}
+            );
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    collector_id: 'c_xyz',
+                    name: 'product-v1',
+                    status: 'done',
+                    completed_steps: ['a', 'b', 'c'],
+                    view_url: 'https://brightdata.com/cp/scrapers/c_xyz',
+                    created_at: '2026-05-18T07:28:30Z',
+                }),
+                expect.objectContaining({output: 'create.json'})
+            );
+        });
+
+        it('the documented `jq -r .collector_id` recipe works on the '
+            +'envelope', async()=>{
+            // The bug PR-2 is fixing — yesterday this returned `null`.
+            setup_success();
+            await handle_create_scraper('https://x.com/p', 'd',
+                {output: 'create.json'});
+            const written = mocks.print.mock.calls[0][0] as {
+                collector_id?: string};
+            expect(written.collector_id).toBe('c_xyz');
+        });
+
+        it('--legacy-output preserves the bare progress payload',
+            async()=>{
+            setup_success();
+            await handle_create_scraper(
+                'https://x.com/p', 'd',
+                {output: 'create.json', legacyOutput: true}
+            );
+            const written = mocks.print.mock.calls[0][0] as {
+                collector_id?: unknown; status?: string};
+            // Bare progress shape today: status + completed_steps,
+            // NO collector_id, NO view_url.
+            expect(written.collector_id).toBeUndefined();
+            expect(written).not.toHaveProperty('view_url');
+            expect(written.status).toBe('done');
+        });
+
+        it('writes the envelope when AI trigger fails (stub-collector '
+            +'recovery path)', async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_stub', name: 'n'})
+                .mockRejectedValueOnce(
+                    new Error('Cannot run more than 3 jobs in parallel'));
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_create_scraper(
+                'https://x.com/p', 'd',
+                {output: 'create.json'}
+            );
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    collector_id: 'c_stub',
+                    status: 'ai_trigger_failed',
+                    error: expect.stringMatching(/parallel/),
+                    view_url: 'https://brightdata.com/cp/scrapers/c_stub',
+                }),
+                expect.objectContaining({output: 'create.json'})
+            );
+            exit.mockRestore();
+            error.mockRestore();
+        });
+
+        it('writes the envelope when poll returns status != done',
+            async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_abc', name: 'n'})
+                .mockResolvedValueOnce({id: 'ia_xyz', queued: false});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'failed',
+                    completed_steps: ['planner']},
+                attempts: 2,
+            });
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_create_scraper(
+                'https://x.com/p', 'd',
+                {output: 'create.json'}
+            );
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    collector_id: 'c_abc',
+                    status: 'failed',
+                    completed_steps: ['planner'],
+                    error: expect.stringMatching(/finished with status/),
+                }),
+                expect.objectContaining({output: 'create.json'})
+            );
+            exit.mockRestore();
+            error.mockRestore();
+        });
+
+        it('writes the envelope when polling itself throws (timeout '
+            +'or network)', async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_abc', name: 'n'})
+                .mockResolvedValueOnce({id: 'ia_xyz', queued: false});
+            mocks.poll_until.mockRejectedValue(
+                new Error(
+                    'Timeout after 600 seconds waiting for AI generation'));
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_create_scraper(
+                'https://x.com/p', 'd',
+                {output: 'create.json'}
+            );
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    collector_id: 'c_abc',
+                    status: 'poll_failed',
+                    error: expect.stringMatching(/Timeout/),
+                }),
+                expect.objectContaining({output: 'create.json'})
+            );
+            exit.mockRestore();
+            error.mockRestore();
+        });
+    });
+
     describe('handle_create_scraper', ()=>{
         it('chains create → trigger → poll and prints JSON in non-TTY',
             async()=>{
@@ -194,8 +407,17 @@ describe('commands/scraper', ()=>{
                     timeout_label: expect.stringContaining('c_abc'),
                 })
             );
+            // PR-2: -o now writes an envelope with collector_id,
+            // not the raw progress payload. The documented
+            // `jq -r '.collector_id'` recipe depends on this.
             expect(mocks.print).toHaveBeenCalledWith(
-                progress,
+                expect.objectContaining({
+                    collector_id: 'c_abc',
+                    name: 'cli-scraper-1',
+                    status: 'done',
+                    completed_steps: ['a', 'b'],
+                    view_url: 'https://brightdata.com/cp/scrapers/c_abc',
+                }),
                 {json: undefined, pretty: undefined, output: undefined}
             );
         });
@@ -209,7 +431,10 @@ describe('commands/scraper', ()=>{
                 result: progress, attempts: 1});
             await handle_create_scraper('https://x.com', 'd', {json: true});
             expect(mocks.print).toHaveBeenCalledWith(
-                progress,
+                expect.objectContaining({
+                    collector_id: 'c_abc',
+                    status: 'done',
+                }),
                 {json: true, pretty: undefined, output: undefined}
             );
         });

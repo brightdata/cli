@@ -45,6 +45,23 @@ type Scraper_create_opts = {
     pretty?: boolean;
     timing?: boolean;
     apiKey?: string;
+    // PR-2: when true, write the bare AI-progress payload to -o
+    // (today's shape) instead of the new envelope. One-version
+    // migration flag.
+    legacyOutput?: boolean;
+};
+
+// PR-2: machine-readable envelope written to -o on every termination
+// path of `scraper create`. Replaces the previous bare-progress
+// payload so the documented `jq -r '.collector_id'` recipe works.
+type Create_envelope = {
+    collector_id: string;
+    name: string;
+    status: string;
+    completed_steps: string[];
+    view_url: string;
+    created_at?: string;
+    error?: string;
 };
 
 type Run_request = {
@@ -92,6 +109,7 @@ export type {
     Trigger_ai_response,
     Ai_progress_response,
     Scraper_create_opts,
+    Create_envelope,
     Run_request,
     Trigger_immediate_response,
     Sync_timeout_response,
