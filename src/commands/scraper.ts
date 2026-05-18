@@ -1,5 +1,5 @@
 import {Command} from 'commander';
-import {post, get} from '../utils/client';
+import {post, get, type Body_hint} from '../utils/client';
 import {load as load_config} from '../utils/config';
 import {ensure_authenticated} from '../utils/auth';
 import {start as start_spinner} from '../utils/spinner';
@@ -17,6 +17,37 @@ import type {
     Scraper_run_opts,
     Batch_trigger_response,
 } from '../types/scraper';
+
+// AI Scraper Studio specific error-body hints. Lives with the command
+// that owns the DCA endpoints — NOT in the shared HTTP client — so the
+// AI-Flow vocabulary doesn't leak into `scrape`, `search`, `discover`,
+// `pipelines`, or `browser`.
+//
+// Both patterns describe the same incident from two perspectives:
+//   * The 429 fires during `scraper create` when too many AI-Flow jobs
+//     are in flight at once (undocumented 3-job cap as of v0.2.0).
+//   * The 403 "Collector does not have a template" fires later when
+//     the user tries to `scraper run` against the half-built
+//     collector_id the failed create left behind.
+//
+// First match wins. Add more patterns here as we learn about other
+// scraper-API error bodies that deserve a better hint.
+const SCRAPER_BODY_HINTS: Body_hint[] = [
+    {
+        pattern: /collector does not have a template/i,
+        hint: 'AI generation has not completed for this collector. '
+            +'Re-run `bdata scraper create` (the previous attempt may '
+            +'have hit the AI-Flow parallel-job cap), or open '
+            +'https://brightdata.com/cp/scrapers to inspect / finish '
+            +'the half-built collector in the web UI.',
+    },
+    {
+        pattern: /cannot run more than \d+ jobs in parallel/i,
+        hint: 'You hit the AI-Flow concurrent-job cap. Wait for an '
+            +'in-flight `scraper create` to finish, or serialise '
+            +'your launches.',
+    },
+];
 
 const CREATE_TEMPLATE_ENDPOINT = '/dca/collector';
 const AI_TRIGGER_PATH = 'automate_template';
@@ -105,7 +136,7 @@ const handle_create_scraper = async(
             api_key,
             CREATE_TEMPLATE_ENDPOINT,
             template_body,
-            {timing: opts.timing}
+            {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
         );
         create_spinner.stop();
         if (!template.id)
@@ -129,7 +160,7 @@ const handle_create_scraper = async(
             api_key,
             `/dca/collectors/${collector_id}/${AI_TRIGGER_PATH}`,
             build_ai_request(url, description),
-            {timing: opts.timing}
+            {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
         );
         trigger_spinner.stop();
     } catch(e) {
@@ -148,7 +179,7 @@ const handle_create_scraper = async(
             fetch_once: ()=>get<Ai_progress_response>(
                 api_key,
                 `/dca/collectors/${collector_id}/${AI_PROGRESS_PATH}`,
-                {timing: opts.timing}
+                {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
             ),
             get_status: extract_progress_status,
             running_statuses: [RUNNING_SENTINEL],
@@ -338,7 +369,7 @@ const run_batch = async(
             api_key,
             `${BATCH_TRIGGER_ENDPOINT}?${query}`,
             [build_run_request(url)],
-            {timing: opts.timing}
+            {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
         );
         trigger_spinner.stop();
         if (!trigger.collection_id)
@@ -474,7 +505,7 @@ const handle_run_scraper = async(
             api_key,
             `${TRIGGER_IMMEDIATE_ENDPOINT}?${trigger_query}`,
             build_run_request(url),
-            {timing: opts.timing}
+            {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
         );
         trigger_spinner.stop();
         if (!trigger.response_id)
@@ -592,4 +623,5 @@ export {
     parse_sync_timeout,
     is_realtime_page_limit_error,
     classify_dataset,
+    SCRAPER_BODY_HINTS,
 };

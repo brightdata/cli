@@ -11,12 +11,35 @@ const ERROR_HINTS: Record<number, string> = {
     429: 'Rate limit exceeded. Wait a moment and try again.',
 };
 
+// Each command can supply its own ordered list of body-pattern overrides
+// via Request_opts.hints. The shared HTTP layer knows nothing about
+// per-command error semantics — it just consults the caller's hints
+// before falling back to the generic ERROR_HINTS map.
+type Body_hint = {pattern: RegExp; hint: string};
+
+const pick_hint = (
+    status: number,
+    body: string,
+    extra_hints?: Body_hint[]
+): string|undefined=>{
+    if (extra_hints)
+    {
+        for (const {pattern, hint} of extra_hints)
+        {
+            if (pattern.test(body))
+                return hint;
+        }
+    }
+    return ERROR_HINTS[status];
+};
+
 type Request_opts = {
     method?: string;
     body?: unknown;
     headers?: Record<string, string>;
     timing?: boolean;
     raw_buffer?: boolean;
+    hints?: Body_hint[];
 };
 
 type Api_error = {
@@ -27,10 +50,14 @@ type Api_error = {
 
 const sleep = (ms: number)=>new Promise(resolve=>setTimeout(resolve, ms));
 
-const format_error = (status: number, detail: string): Api_error=>({
+const format_error = (
+    status: number,
+    detail: string,
+    extra_hints?: Body_hint[]
+): Api_error=>({
     status,
     message: detail,
-    hint: ERROR_HINTS[status],
+    hint: pick_hint(status, detail, extra_hints),
 });
 
 const request = async<T = unknown>(
@@ -93,7 +120,7 @@ const request = async<T = unknown>(
                 if (err_body)
                     detail = err_body;
             } catch(_e) {}
-            const api_err = format_error(res.status, detail);
+            const api_err = format_error(res.status, detail, opts.hints);
             const msg = [
                 `Error: ${api_err.message}`,
                 `  Status: ${api_err.status}`,
@@ -133,5 +160,5 @@ const get = <T = unknown>(
     opts: Omit<Request_opts, 'method'> = {}
 ): Promise<T>=>request<T>(api_key, endpoint, {method: 'GET', ...opts});
 
-export {request, post, get};
-export type {Request_opts, Api_error};
+export {request, post, get, pick_hint, ERROR_HINTS};
+export type {Request_opts, Api_error, Body_hint};
