@@ -3,6 +3,7 @@ import {load as load_config} from './config';
 const TRANSIENT_STATUSES = [429, 500, 502, 503, 504];
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 500;
+const RETRY_MAX_MS_DEFAULT = 16_000;
 
 const ERROR_HINTS: Record<number, string> = {
     401: 'Invalid or expired API key. Run \'brightdata login\' to re-authenticate.',
@@ -31,6 +32,22 @@ const pick_hint = (
     return ERROR_HINTS[status];
 };
 
+// Per-request retry override, for callers needing a longer backoff
+// than the generic transient-error schedule.
+type Retry_event = {
+    attempt: number; // 1-based retry number about to be slept
+    max_attempts: number;
+    delay_ms: number;
+    status: number; // 0 for a pre-response network error
+};
+
+type Retry_config = {
+    max_attempts?: number;
+    base_ms?: number;
+    max_ms?: number;
+    on_retry?: (e: Retry_event)=>void;
+};
+
 type Request_opts = {
     method?: string;
     body?: unknown;
@@ -38,6 +55,7 @@ type Request_opts = {
     timing?: boolean;
     raw_buffer?: boolean;
     hints?: Body_hint[];
+    retry?: Retry_config;
 };
 
 type Api_error = {
@@ -57,6 +75,18 @@ const format_error = (
     message: detail,
     hint: pick_hint(status, detail, extra_hints),
 });
+
+// full-jitter exponential delay (∈ [exp/2, exp]) to spread herds of
+// concurrent processes that all 429 on the same tick.
+const compute_backoff = (
+    attempt: number,
+    base_ms: number,
+    max_ms: number
+): number=>{
+    const exp = Math.min(base_ms * 2 ** attempt, max_ms);
+    const jitter = exp * 0.5 * Math.random();
+    return Math.floor(exp / 2 + jitter);
+};
 
 const request = async<T = unknown>(
     api_key: string,
@@ -79,15 +109,18 @@ const request = async<T = unknown>(
     };
     if (opts.body !== undefined)
         fetch_opts.body = JSON.stringify(opts.body);
+    const max_attempts = opts.retry?.max_attempts ?? MAX_RETRIES;
+    const base_ms = opts.retry?.base_ms ?? RETRY_BASE_MS;
+    const max_ms = opts.retry?.max_ms ?? RETRY_MAX_MS_DEFAULT;
     let attempt = 0;
     let start = opts.timing ? Date.now() : 0;
-    while (attempt <= MAX_RETRIES)
+    while (attempt <= max_attempts)
     {
         try {
             const res = await fetch(url, fetch_opts);
             if (opts.timing)
             {
-                console.error(`Timing: ${Date.now()-start}ms 
+                console.error(`Timing: ${Date.now()-start}ms
                     (attempt ${attempt+1})`);
             }
             const brd_error = res.headers.get('x-brd-error')
@@ -104,10 +137,16 @@ const request = async<T = unknown>(
                     return await res.json() as T;
                 return await res.text() as unknown as T;
             }
-            if (TRANSIENT_STATUSES.includes(res.status) && 
-                attempt < MAX_RETRIES)
+            if (TRANSIENT_STATUSES.includes(res.status) &&
+                attempt < max_attempts)
             {
-                const delay = RETRY_BASE_MS * 2**attempt;
+                const delay = compute_backoff(attempt, base_ms, max_ms);
+                opts.retry?.on_retry?.({
+                    attempt: attempt + 1,
+                    max_attempts,
+                    delay_ms: delay,
+                    status: res.status,
+                });
                 await sleep(delay);
                 attempt++;
                 continue;
@@ -129,9 +168,15 @@ const request = async<T = unknown>(
         } catch(e) {
             if (e instanceof Error && e.message.startsWith('Error:'))
                 throw e;
-            if (attempt < MAX_RETRIES)
+            if (attempt < max_attempts)
             {
-                const delay = RETRY_BASE_MS * 2**attempt;
+                const delay = compute_backoff(attempt, base_ms, max_ms);
+                opts.retry?.on_retry?.({
+                    attempt: attempt + 1,
+                    max_attempts,
+                    delay_ms: delay,
+                    status: 0,
+                });
                 await sleep(delay);
                 attempt++;
                 continue;
@@ -158,5 +203,6 @@ const get = <T = unknown>(
     opts: Omit<Request_opts, 'method'> = {}
 ): Promise<T>=>request<T>(api_key, endpoint, {method: 'GET', ...opts});
 
-export {request, post, get, pick_hint, ERROR_HINTS};
-export type {Request_opts, Api_error, Body_hint};
+export {request, post, get, pick_hint, ERROR_HINTS, compute_backoff,
+    RETRY_BASE_MS, RETRY_MAX_MS_DEFAULT, MAX_RETRIES};
+export type {Request_opts, Api_error, Body_hint, Retry_config, Retry_event};
