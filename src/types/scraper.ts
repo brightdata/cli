@@ -85,6 +85,8 @@ type Scraper_run_opts = {
     pretty?: boolean;
     timing?: boolean;
     apiKey?: string;
+    urls?: string;
+    inputFile?: string;
 };
 
 type Batch_trigger_response = {

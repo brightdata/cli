@@ -410,17 +410,25 @@ brightdata scraper create https://example.com/product/1 \
 
 ### `scraper run`
 
-Run a scraper (built with `scraper create` or in the web UI) against a URL and get the extracted data.
+Run a scraper (built with `scraper create` or in the web UI) against one or more URLs and get the extracted data.
 
 ```bash
-brightdata scraper run <collector_id> <url> [options]
+brightdata scraper run <collector_id> [url] [options]
 ```
+
+Provide URLs in exactly one of three ways:
+
+- Positional `<url>` — single URL (legacy form, unchanged).
+- `--urls <u1,u2,...>` — comma-separated list.
+- `--input-file <path>` — file with one URL per line, **or** a JSON array of URL strings, **or** a JSON array of `{"url": "..."}` objects.
 
 | Flag | Description |
 |---|---|
-| `--sync` | Use the synchronous `/dca/crawl` endpoint (server-side cap of 25–50s) |
+| `--urls <list>` | Comma-separated list of URLs (multi-URL batch path) |
+| `--input-file <path>` | File with URLs (txt one-per-line, or JSON array) |
+| `--sync` | Use the synchronous `/dca/crawl` endpoint (single-URL only, server-side cap of 25–50s) |
 | `--sync-timeout <seconds>` | Sync-mode server timeout, `25`–`50` (default: `50`) |
-| `--timeout <seconds>` | Async polling timeout (default: `600`) |
+| `--timeout <seconds>` | Polling timeout (default: `600` single-URL, `3600` batch) |
 | `--name <name>` | Human-readable job name |
 | `--version <version>` | Scraper version (e.g. `dev`) |
 | `-o, --output <path>` | Write output to file |
@@ -428,9 +436,12 @@ brightdata scraper run <collector_id> <url> [options]
 | `--timing` | Show request timing |
 | `-k, --api-key <key>` | Override API key |
 
-By default the command uses the async flow: it triggers `/dca/trigger_immediate`, gets back a `response_id`, and polls `/dca/get_result` until the data is ready. Use `--sync` for one-shot scrapes that you expect to finish within ~50 seconds; on a sync server-side timeout the command exits with the `response_id` so you can re-run without `--sync` to poll for the result.
+**Routing**
 
-If a URL expands to more pages than the realtime job limit allows (e.g. paginated listings, infinite scroll), the CLI automatically falls back to the batch endpoint (`/dca/trigger` → poll `/dca/dataset`). The fallback prints a one-line notice and adjusts the poll interval and timeout for the longer batch wait. No flag required.
+- **Single URL** (positional, or one entry via `--urls` / `--input-file`) → async flow: `/dca/trigger_immediate` → poll `/dca/get_result`. Use `--sync` for `/dca/crawl` (one-shot, 25–50s).
+- **Multiple URLs** (`--urls` / `--input-file` with 2+ entries) → single POST to `/dca/trigger` with an array body, one `collection_id`, polled via `/dca/dataset`. This mirrors the canonical batch shape used by the reference SDKs ([`triggerWithUrls`](https://github.com/brightdata/bright-data-scraper-studio-nodejs-project) / [`trigger_with_urls`](https://github.com/brightdata/bright-data-scraper-studio-python-project)). `--sync` is incompatible with multi-URL — `/dca/crawl` accepts only a single URL.
+
+If a single URL expands to more pages than the realtime job limit allows (paginated listings, infinite scroll), the CLI automatically falls back to the batch endpoint and prints a one-line notice. No flag required.
 
 **Examples**
 
@@ -448,6 +459,18 @@ brightdata scraper run c_mp3tuab31lswoxvpws https://example.com/p/1 --sync
 # Sync with a shorter server timeout and a job name
 brightdata scraper run c_mp3tuab31lswoxvpws https://example.com/p/1 \
     --sync --sync-timeout 30 --name first-test
+
+# Multi-URL batch — one API call, one snapshot, one merged result array
+brightdata scraper run c_mp3tuab31lswoxvpws \
+    --urls "https://example.com/p/1,https://example.com/p/2,https://example.com/p/3" \
+    --pretty -o products.json
+
+# Multi-URL from a file (one URL per line; # comments and blank lines skipped)
+brightdata scraper run c_mp3tuab31lswoxvpws --input-file urls.txt -o products.json
+
+# Multi-URL from a JSON array
+echo '["https://example.com/p/1","https://example.com/p/2"]' > urls.json
+brightdata scraper run c_mp3tuab31lswoxvpws --input-file urls.json
 ```
 
 ---
