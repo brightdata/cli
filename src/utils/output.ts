@@ -14,13 +14,24 @@ const dim    = (s: string)=>ansi('2', s);
 const success = (msg: string)=>console.error(green(`✓ ${msg}`));
 const warn    = (msg: string)=>console.error(yellow(`⚠ ${msg}`));
 const info    = (msg: string)=>console.error(dim(msg));
-const fail    = (msg: string)=>{ console.error(red(`✗ ${msg}`)); 
+const fail    = (msg: string)=>{ console.error(red(`✗ ${msg}`));
     process.exit(1); };
 
 type Output_format = 'markdown'|'json'|'pretty'|'html'|'csv'|'raw';
 
+const UNSUPPORTED_EXTS: Record<string, string> = {
+    '.xlsx': 'XLSX output is not supported. Use --pretty -o file.json '
+        +'and convert with a tool like xlsx-cli, or download as XLSX '
+        +'from the Bright Data web UI (https://brightdata.com/cp/scrapers).',
+    '.xls':  'XLS output is not supported. Use --pretty -o file.json '
+        +'and convert with a tool like xlsx-cli, or download from the '
+        +'Bright Data web UI (https://brightdata.com/cp/scrapers).',
+};
+
 const format_from_ext = (file_path: string): Output_format|null=>{
     const ext = path.extname(file_path).toLowerCase();
+    if (UNSUPPORTED_EXTS[ext])
+        fail(UNSUPPORTED_EXTS[ext]);
     if (ext == '.json') return 'json';
     if (ext == '.md')   return 'markdown';
     if (ext == '.html') return 'html';
@@ -35,11 +46,120 @@ type Print_opts = {
     format?: Output_format;
 };
 
+const to_rows = (data: unknown): Record<string, unknown>[]|null=>{
+    if (Array.isArray(data) && data.length
+        && data.every(d=>d && typeof d == 'object' && !Array.isArray(d)))
+    {
+        return data as Record<string, unknown>[];
+    }
+    if (data && typeof data == 'object' && !Array.isArray(data))
+        return [data as Record<string, unknown>];
+    return null;
+};
+
+const collect_keys = (rows: Record<string, unknown>[]): string[]=>{
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const r of rows)
+    {
+        for (const k of Object.keys(r))
+        {
+            if (!seen.has(k))
+            {
+                seen.add(k);
+                ordered.push(k);
+            }
+        }
+    }
+    return ordered;
+};
+
+const cell_to_string = (val: unknown): string=>{
+    if (val === null || val === undefined)
+        return '';
+    if (typeof val == 'string')
+        return val;
+    if (typeof val == 'number' || typeof val == 'boolean')
+        return String(val);
+    return JSON.stringify(val);
+};
+
+const csv_escape = (val: unknown): string=>{
+    const s = cell_to_string(val);
+    if (/[",\r\n]/.test(s))
+        return '"'+s.replace(/"/g, '""')+'"';
+    return s;
+};
+
+const serialize_csv = (data: unknown): string=>{
+    if (typeof data == 'string')
+        return data;
+    const rows = to_rows(data);
+    if (!rows)
+    {
+        warn('CSV requires an object or array of objects; falling back '
+            +'to JSON. Use --json to silence this warning.');
+        return JSON.stringify(data, null, 2);
+    }
+    const keys = collect_keys(rows);
+    const header = keys.map(csv_escape).join(',');
+    const body = rows.map(r=>keys.map(k=>csv_escape(r[k])).join(',')).join('\n');
+    return header+'\n'+body+'\n';
+};
+
+const md_escape = (val: unknown): string=>
+    cell_to_string(val).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+
+const serialize_markdown = (data: unknown): string=>{
+    if (typeof data == 'string')
+        return data;
+    const rows = to_rows(data);
+    if (!rows)
+        return '```json\n'+JSON.stringify(data, null, 2)+'\n```\n';
+    const keys = collect_keys(rows);
+    const header = '| '+keys.join(' | ')+' |';
+    const divider = '| '+keys.map(()=>'---').join(' | ')+' |';
+    const body = rows.map(r=>
+        '| '+keys.map(k=>md_escape(r[k])).join(' | ')+' |').join('\n');
+    return [header, divider, body].join('\n')+'\n';
+};
+
+const html_escape = (val: unknown): string=>
+    cell_to_string(val)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+const serialize_html = (data: unknown): string=>{
+    if (typeof data == 'string')
+        return data;
+    const rows = to_rows(data);
+    if (!rows)
+        return '<pre>'+html_escape(JSON.stringify(data, null, 2))+'</pre>\n';
+    const keys = collect_keys(rows);
+    const thead = '<thead><tr>'
+        +keys.map(k=>'<th>'+html_escape(k)+'</th>').join('')
+        +'</tr></thead>';
+    const tbody = '<tbody>'
+        +rows.map(r=>'<tr>'
+            +keys.map(k=>'<td>'+html_escape(r[k])+'</td>').join('')
+            +'</tr>').join('')
+        +'</tbody>';
+    return '<table>'+thead+tbody+'</table>\n';
+};
+
 const serialize = (data: unknown, fmt: Output_format): string=>{
     if (fmt == 'pretty')
         return JSON.stringify(data, null, 2);
     if (fmt == 'json')
         return JSON.stringify(data);
+    if (fmt == 'csv')
+        return serialize_csv(data);
+    if (fmt == 'markdown')
+        return serialize_markdown(data);
+    if (fmt == 'html')
+        return serialize_html(data);
     if (typeof data == 'string')
         return data;
     return JSON.stringify(data, null, 2);
