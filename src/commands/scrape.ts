@@ -5,6 +5,7 @@ import {ensure_authenticated} from '../utils/auth';
 import {resolve} from '../utils/config';
 import {start as start_spinner} from '../utils/spinner';
 import {print, success, fail, info} from '../utils/output';
+import {add_examples} from '../utils/help';
 import type {
     Scrape_format,
     Scrape_request,
@@ -105,5 +106,23 @@ const scrape_command = new Command('scrape')
     .option('--timing', 'Show request timing')
     .option('-k, --api-key <key>', 'Override API key')
     .action(handle_scrape);
+
+add_examples(scrape_command, [
+    {
+        description: 'Scrape a public page and get markdown (default '
+            +'format)',
+        command: 'brightdata scrape https://news.ycombinator.com',
+    },
+    {
+        description: 'Return JSON with response metadata, save to a file',
+        command: 'brightdata scrape https://news.ycombinator.com '
+            +'--format json --pretty -o hn.json',
+    },
+    {
+        description: 'Geo-target Germany with a mobile user agent',
+        command: 'brightdata scrape https://www.google.com/search?q=heise '
+            +'--country de --mobile',
+    },
+]);
 
 export {scrape_command, handle_scrape};

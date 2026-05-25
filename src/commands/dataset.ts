@@ -4,6 +4,7 @@ import {get, post} from '../utils/client';
 import {print, dim, fail} from '../utils/output';
 import {start as start_spinner} from '../utils/spinner';
 import {parse_timeout, poll_until} from '../utils/polling';
+import {add_examples} from '../utils/help';
 import type {
     Webdata_format,
     Webdata_opts,
@@ -304,5 +305,23 @@ const pipelines_command = new Command('pipelines')
     .option('--timing', 'Show request timing')
     .option('-k, --api-key <key>', 'Override API key')
     .action(handle_pipelines);
+
+add_examples(pipelines_command, [
+    {
+        description: 'List every available pipeline type',
+        command: 'brightdata pipelines list',
+    },
+    {
+        description: 'Scrape a single Amazon product page',
+        command: 'brightdata pipelines amazon_product '
+            +'https://www.amazon.com/dp/B08N5WRWNW --pretty',
+    },
+    {
+        description: 'Pull a LinkedIn person profile by URL, save as CSV',
+        command: 'brightdata pipelines linkedin_person_profile '
+            +'https://www.linkedin.com/in/satyanadella --format csv '
+            +'-o profile.csv',
+    },
+]);
 
 export {pipelines_command, handle_pipelines};

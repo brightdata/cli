@@ -4,6 +4,7 @@ import {ensure_authenticated} from '../utils/auth';
 import {start as start_spinner} from '../utils/spinner';
 import {parse_timeout, poll_until} from '../utils/polling';
 import {print, print_table, dim, fail, is_tty} from '../utils/output';
+import {add_examples} from '../utils/help';
 import type {
     Discover_request,
     Discover_trigger_response,
@@ -183,6 +184,24 @@ const discover_command = new Command('discover')
     .option('--timing', 'Show request timing')
     .option('-k, --api-key <key>', 'Override API key')
     .action(handle_discover);
+
+add_examples(discover_command, [
+    {
+        description: 'Discover and rank URLs relevant to a query',
+        command: 'brightdata discover "open-source AI agent frameworks"',
+    },
+    {
+        description: 'Add an AI intent filter and cap results',
+        command: 'brightdata discover "vector databases" '
+            +'--intent "production-ready, self-hostable" --num-results 10',
+    },
+    {
+        description: 'Localize to a country and include page content as '
+            +'markdown',
+        command: 'brightdata discover "best coffee in Berlin" '
+            +'--country DE --include-content',
+    },
+]);
 
 export {discover_command, handle_discover, build_request, extract_status,
     format_markdown, print_discover_table};

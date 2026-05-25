@@ -1,5 +1,6 @@
 import {readFileSync} from 'node:fs';
 import {Command} from 'commander';
+import {add_examples} from '../utils/help';
 import {post, get, type Body_hint, type Retry_config,
     type Retry_event} from '../utils/client';
 import {load as load_config} from '../utils/config';
@@ -901,6 +902,50 @@ const run_subcommand = new Command('run')
     .option('--timing', 'Show request timing')
     .option('-k, --api-key <key>', 'Override API key')
     .action(handle_run_scraper);
+
+add_examples(create_subcommand, [
+    {
+        description: 'Build a scraper for a public page (AI generation '
+            +'takes 5 to 10 minutes)',
+        command: 'brightdata scraper create https://news.ycombinator.com '
+            +'"Extract the top 30 stories: title, url, points, author, '
+            +'comment count."',
+    },
+    {
+        description: 'Name the scraper and save the full AI output for '
+            +'inspection',
+        command: 'brightdata scraper create https://www.ycombinator.com/'
+            +'companies?batch=W26 "For each company card, extract name, '
+            +'vertical, tagline, link" --name yc-w26 --pretty -o create.json',
+    },
+    {
+        description: 'Custom delivery webhook (default is a stub, set '
+            +'this when wiring to your own backend)',
+        command: 'brightdata scraper create https://news.ycombinator.com '
+            +'"Extract top stories" --deliver-webhook '
+            +'https://your-app.test/scraper-callback',
+    },
+]);
+
+add_examples(run_subcommand, [
+    {
+        description: 'Run a scraper against a single URL (async, polls '
+            +'until done)',
+        command: 'brightdata scraper run c_mp3tuab31lswoxvpws '
+            +'https://news.ycombinator.com --pretty',
+    },
+    {
+        description: 'Sync mode for small fast pages (server-side 25 to '
+            +'50 second cap)',
+        command: 'brightdata scraper run c_mp3tuab31lswoxvpws '
+            +'https://news.ycombinator.com --sync',
+    },
+    {
+        description: 'Save output as CSV (extension chooses format)',
+        command: 'brightdata scraper run c_mp3tuab31lswoxvpws '
+            +'https://news.ycombinator.com -o stories.csv',
+    },
+]);
 
 const scraper_command = new Command('scraper')
     .description('Build and manage Bright Data scrapers')
