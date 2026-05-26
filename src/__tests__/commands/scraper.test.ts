@@ -58,6 +58,7 @@ import {
     parse_sync_timeout,
     is_realtime_page_limit_error,
     classify_dataset,
+    SCRAPER_BODY_HINTS,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -66,6 +67,80 @@ describe('commands/scraper', ()=>{
         mocks.ensure_authenticated.mockReturnValue('api_key');
         mocks.parse_timeout.mockReturnValue(600);
         mocks.start.mockReturnValue({stop: mocks.stop});
+    });
+
+    // Scraper hints live with this command, not the shared client, and
+    // must travel to the HTTP layer on every API call the command makes.
+    describe('SCRAPER_BODY_HINTS', ()=>{
+        it('contains a hint for the stub-collector 403 response body',
+            ()=>{
+            const stub_hint = SCRAPER_BODY_HINTS.find(h=>
+                h.pattern.test('Collector does not have a template'));
+            expect(stub_hint).toBeDefined();
+            expect(stub_hint!.hint).toMatch(/AI generation has not completed/);
+            expect(stub_hint!.hint).toMatch(/bdata scraper create/);
+            // Must NOT echo the misleading generic 403 hint.
+            expect(stub_hint!.hint).not.toMatch(/zone permissions/);
+        });
+
+        it('contains a hint for the parallel-job cap 429 response body',
+            ()=>{
+            const cap_hint = SCRAPER_BODY_HINTS.find(h=>
+                h.pattern.test('Cannot run more than 3 jobs in parallel'));
+            expect(cap_hint).toBeDefined();
+            expect(cap_hint!.hint).toMatch(/concurrent-job cap/);
+            expect(cap_hint!.hint).toMatch(/serialise/);
+        });
+
+        it('cap pattern is case-insensitive and number-agnostic '
+            +'(future-proof if the cap changes)', ()=>{
+            const cap_pattern = SCRAPER_BODY_HINTS[1].pattern;
+            expect(cap_pattern.test('cannot run more than 5 jobs '
+                +'in parallel')).toBe(true);
+            expect(cap_pattern.test('CANNOT RUN MORE THAN 100 JOBS '
+                +'IN PARALLEL')).toBe(true);
+        });
+
+        it('is passed via `hints` opt to client.post on every '
+            +'AI-Flow call in handle_create_scraper', async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_abc', name: 'cli-scraper-1'})
+                .mockResolvedValueOnce({id: 'ia_xyz', queued: false});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: []},
+                attempts: 1,
+            });
+            await handle_create_scraper(
+                'https://example.com/p/1',
+                'extract title',
+                {}
+            );
+            for (const call of mocks.post.mock.calls)
+            {
+                const opts = call[3] as {hints?: unknown};
+                expect(opts).toBeDefined();
+                expect(opts.hints).toBe(SCRAPER_BODY_HINTS);
+            }
+        });
+
+        it('is passed via `hints` opt to client.post on the '
+            +'trigger_immediate call in handle_run_scraper', async()=>{
+            mocks.post.mockResolvedValueOnce({response_id: 'r_xyz'});
+            const fetch_spy = vi.spyOn(global, 'fetch')
+                .mockImplementation(()=>Promise.resolve({
+                    status: 200,
+                    text: ()=>Promise.resolve('{"title":"ok"}'),
+                } as unknown as Response));
+            mocks.poll_until.mockImplementation(async(o: never)=>{
+                const cfg = o as {fetch_once: ()=>Promise<unknown>};
+                const r = await cfg.fetch_once();
+                return {result: r, attempts: 1};
+            });
+            await handle_run_scraper('c_abc', 'https://x.com/p/1', {});
+            const opts = mocks.post.mock.calls[0][3] as {hints?: unknown};
+            expect(opts.hints).toBe(SCRAPER_BODY_HINTS);
+            fetch_spy.mockRestore();
+        });
     });
 
     describe('build_template_request', ()=>{
@@ -176,7 +251,7 @@ describe('commands/scraper', ()=>{
                 expect.objectContaining({
                     deliver: expect.objectContaining({type: 'webhook'}),
                 }),
-                {timing: undefined}
+                expect.objectContaining({timing: undefined})
             );
             expect(mocks.post).toHaveBeenNthCalledWith(
                 2,
@@ -184,7 +259,7 @@ describe('commands/scraper', ()=>{
                 '/dca/collectors/c_abc/automate_template',
                 {description: 'extract title',
                     urls: ['https://example.com/p/1']},
-                {timing: undefined}
+                expect.objectContaining({timing: undefined})
             );
             expect(mocks.poll_until).toHaveBeenCalledTimes(1);
             expect(mocks.poll_until).toHaveBeenCalledWith(
@@ -404,7 +479,7 @@ describe('commands/scraper', ()=>{
                 expect.stringMatching(
                     /\/dca\/trigger_immediate\?collector=c_abc/),
                 {url: 'https://x.com/p/1'},
-                {timing: undefined}
+                expect.objectContaining({timing: undefined})
             );
             expect(mocks.print).toHaveBeenCalledWith(
                 {title: 'hello'},
