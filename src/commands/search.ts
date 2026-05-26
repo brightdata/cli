@@ -4,6 +4,7 @@ import {ensure_authenticated} from '../utils/auth';
 import {resolve} from '../utils/config';
 import {start as start_spinner} from '../utils/spinner';
 import {print, print_table, fail, dim} from '../utils/output';
+import {add_examples} from '../utils/help';
 import type {
     Search_engine,
     Search_type,
@@ -279,5 +280,22 @@ const search_command = new Command('search')
     .option('--timing', 'Show request timing')
     .option('-k, --api-key <key>', 'Override API key')
     .action(handle_search);
+
+add_examples(search_command, [
+    {
+        description: 'Web search via Google (default engine)',
+        command: 'brightdata search "web scraping best practices 2026"',
+    },
+    {
+        description: 'News search localized to a country',
+        command: 'brightdata search "AI agent funding" '
+            +'--type news --country us --pretty',
+    },
+    {
+        description: 'Bing image search, mobile device profile',
+        command: 'brightdata search "san francisco skyline" '
+            +'--engine bing --type images --device mobile',
+    },
+]);
 
 export {search_command, handle_search};
