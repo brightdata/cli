@@ -319,12 +319,43 @@ brightdata scraper create <url> <description> [options]
 | `--name <name>` | Scraper template name (default: `cli-scraper-<timestamp>`) |
 | `--deliver-webhook <url>` | Webhook URL for the deliver stub (default: `https://example.com/webhook`) |
 | `--timeout <seconds>` | Polling timeout in seconds (default: `600`) |
-| `-o, --output <path>` | Write output to file |
+| `-o, --output <path>` | Write the JSON envelope to a file (see below) |
 | `--json` / `--pretty` | JSON output (raw / indented) |
+| `--legacy-output` | Write the pre-v0.3 bare AI-progress payload to `-o` instead of the envelope. Migration only. |
 | `--timing` | Show request timing |
 | `-k, --api-key <key>` | Override API key |
 
 > **Note:** The scraper is created with a placeholder webhook delivery target (`https://example.com/webhook`). You can reconfigure the actual delivery endpoint in the [Bright Data web UI](https://brightdata.com/cp/scrapers) after creation.
+
+#### Output envelope (`-o create.json`)
+
+Every termination path — success or failure — writes the same JSON envelope shape:
+
+```json
+{
+  "collector_id":    "c_mp7x8a9b2c0d1e2f",
+  "name":            "my-product-scraper",
+  "status":          "done",
+  "completed_steps": ["prepare_intent_analyzer", "planner", "..."],
+  "view_url":        "https://brightdata.com/cp/scrapers/c_mp7x8a9b2c0d1e2f",
+  "created_at":      "2026-05-18T07:28:30Z"
+}
+```
+
+On failure paths the envelope adds an `error` field and the `status` reflects the failure category (`ai_trigger_failed`, `failed`, `poll_failed`). The `collector_id` and `view_url` are still present so you can recover or inspect the half-built scraper.
+
+This makes the documented chain in [recipes.md](https://github.com/brightdata/skills/blob/main/skills/scraper-studio/references/recipes.md) work as written:
+
+```bash
+brightdata scraper create https://example.com/product/1 "..." \
+    -o create.json
+COLLECTOR_ID=$(jq -r '.collector_id' create.json)
+brightdata scraper run "$COLLECTOR_ID" https://example.com/product/2
+```
+
+> The file format follows the `-o` extension, so `.json` is written compact (ideal for `jq`). Use `--pretty` for indented JSON on stdout when you omit `-o`.
+
+Use `--legacy-output` if you have an existing script that depended on the pre-v0.3 bare-progress shape; the flag is supported for one minor version while you migrate.
 
 **Examples**
 
@@ -333,10 +364,13 @@ brightdata scraper create <url> <description> [options]
 brightdata scraper create https://example.com/product/1 \
     "Extract title, price, and image URL from this product page"
 
-# Name the scraper and save the full AI output to a file
+# Name the scraper and save the envelope to a file
 brightdata scraper create https://example.com/product/1 \
     "Extract title, price, and image URL from this product page" \
-    --name my-product-scraper --pretty -o scraper-output.json
+    --name my-product-scraper -o create.json
+
+# Capture the collector_id for chaining
+COLLECTOR_ID=$(jq -r '.collector_id' create.json)
 
 # Use a custom webhook delivery URL
 brightdata scraper create https://example.com/product/1 \

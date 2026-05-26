@@ -45,6 +45,17 @@ type Scraper_create_opts = {
     pretty?: boolean;
     timing?: boolean;
     apiKey?: string;
+    legacyOutput?: boolean; // emit the pre-v0.3 bare payload to -o
+};
+
+type Create_envelope = {
+    collector_id: string;
+    name: string;
+    status: string;
+    completed_steps: string[];
+    view_url: string;
+    created_at?: string;
+    error?: string;
 };
 
 type Run_request = {
@@ -92,6 +103,7 @@ export type {
     Trigger_ai_response,
     Ai_progress_response,
     Scraper_create_opts,
+    Create_envelope,
     Run_request,
     Trigger_immediate_response,
     Sync_timeout_response,
