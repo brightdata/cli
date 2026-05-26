@@ -32,13 +32,11 @@ const pick_hint = (
     return ERROR_HINTS[status];
 };
 
-// Per-request retry override, for callers needing a longer backoff
-// than the generic transient-error schedule.
 type Retry_event = {
-    attempt: number; // 1-based retry number about to be slept
+    attempt: number;
     max_attempts: number;
     delay_ms: number;
-    status: number; // 0 for a pre-response network error
+    status: number;
 };
 
 type Retry_config = {
@@ -76,8 +74,6 @@ const format_error = (
     hint: pick_hint(status, detail, extra_hints),
 });
 
-// full-jitter exponential delay (∈ [exp/2, exp]) to spread herds of
-// concurrent processes that all 429 on the same tick.
 const compute_backoff = (
     attempt: number,
     base_ms: number,

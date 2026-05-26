@@ -7,7 +7,6 @@ import {
 
 describe('utils/client.compute_backoff', ()=>{
     it('grows exponentially with attempt', ()=>{
-        // min over many samples so jitter doesn't flake the assertion.
         const sample_min = (attempt: number)=>{
             let m = Infinity;
             for (let i = 0; i < 50; i++)
@@ -28,7 +27,6 @@ describe('utils/client.compute_backoff', ()=>{
     });
 
     it('uses full-jitter (delay falls in [exp/2, exp])', ()=>{
-        // base 1000, attempt 0 -> exp 1000, so range is [500, 1000].
         const samples: number[] = [];
         for (let i = 0; i < 200; i++)
             samples.push(compute_backoff(0, 1000, 1_000_000));

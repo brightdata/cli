@@ -59,9 +59,6 @@ const BATCH_POLL_INTERVAL_MS = 10_000;
 const BATCH_TIMEOUT_DEFAULT = 3600;
 const REALTIME_LIMIT_MARKER = 'realtime job limit';
 
-// AI-Flow caps concurrent generations per account; the API returns 429
-// on the AI-trigger POST. A freed slot takes 2-11 min, so the generic
-// client schedule (500ms x 2^N up to 16s) is far too short.
 const AI_TRIGGER_RETRY_BASE_MS = 30_000;
 const AI_TRIGGER_RETRY_MAX_MS = 240_000;
 const AI_TRIGGER_DEFAULT_RETRIES = 4;
@@ -79,7 +76,6 @@ const parse_max_retries = (raw: string|undefined): number=>{
 const build_ai_trigger_retry = (
     opts: Pick<Scraper_create_opts, 'maxRetries'|'retry'>
 ): Retry_config=>{
-    // commander maps --no-retry to retry===false.
     if (opts.retry === false)
         return {max_attempts: 0};
     const max_attempts = parse_max_retries(opts.maxRetries);
