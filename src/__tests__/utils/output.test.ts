@@ -22,9 +22,7 @@ describe('utils/output.serialize csv', ()=>{
             {name: 'multi\nline', note: 'ok'}];
         const out = serialize(rows, 'csv');
         const lines = out.trim().split(/\n/);
-        // header
         expect(lines[0]).toBe('name,note');
-        // row 1: both fields need quoting; embedded quote doubled
         expect(lines[1]).toBe('"Smith, John","He said ""hi"""');
     });
 
