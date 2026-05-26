@@ -116,13 +116,23 @@ describe('commands/scraper', ()=>{
             expect(extract_progress_status({status: 'done'})).toBe('done');
         });
 
-        it('returns sentinel running token for any non-done status', ()=>{
+        it('returns sentinel running token for in-progress statuses', ()=>{
             expect(extract_progress_status({status: 'running'}))
                 .toBe('__running__');
             expect(extract_progress_status({status: 'queued'}))
                 .toBe('__running__');
             expect(extract_progress_status({status: 'planner'}))
                 .toBe('__running__');
+        });
+
+        it('returns terminal failure statuses verbatim so polling stops',
+            ()=>{
+            expect(extract_progress_status({status: 'failed'}))
+                .toBe('failed');
+            expect(extract_progress_status({status: 'error'}))
+                .toBe('error');
+            expect(extract_progress_status({status: 'cancelled'}))
+                .toBe('cancelled');
         });
 
         it('returns undefined for missing/invalid input', ()=>{
@@ -150,10 +160,7 @@ describe('commands/scraper', ()=>{
         });
     });
 
-    // PR-2: the envelope contract is the whole point of the PR.
-    // Lock the shape, the failure-path semantics, and the legacy
-    // escape hatch in one place.
-    describe('build_create_envelope (PR-2)', ()=>{
+    describe('build_create_envelope', ()=>{
         it('returns the documented success shape', ()=>{
             const env = build_create_envelope({
                 collector_id: 'c_xyz',
@@ -195,8 +202,6 @@ describe('commands/scraper', ()=>{
             expect(env.status).toBe('ai_trigger_failed');
             expect(env.error).toMatch(/parallel/);
             expect(env.completed_steps).toEqual([]);
-            // view_url remains useful even on failure so the user
-            // can inspect the stub collector in the dashboard.
             expect(env.view_url)
                 .toBe('https://brightdata.com/cp/scrapers/c_xyz');
         });
@@ -214,7 +219,7 @@ describe('commands/scraper', ()=>{
         });
     });
 
-    describe('handle_create_scraper envelope output (PR-2)', ()=>{
+    describe('handle_create_scraper envelope output', ()=>{
         const setup_success = ()=>{
             mocks.post
                 .mockResolvedValueOnce({
@@ -250,7 +255,6 @@ describe('commands/scraper', ()=>{
 
         it('the documented `jq -r .collector_id` recipe works on the '
             +'envelope', async()=>{
-            // The bug PR-2 is fixing — yesterday this returned `null`.
             setup_success();
             await handle_create_scraper('https://x.com/p', 'd',
                 {output: 'create.json'});
@@ -268,19 +272,19 @@ describe('commands/scraper', ()=>{
             );
             const written = mocks.print.mock.calls[0][0] as {
                 collector_id?: unknown; status?: string};
-            // Bare progress shape today: status + completed_steps,
-            // NO collector_id, NO view_url.
             expect(written.collector_id).toBeUndefined();
             expect(written).not.toHaveProperty('view_url');
             expect(written.status).toBe('done');
         });
 
         it('writes the envelope when AI trigger fails (stub-collector '
-            +'recovery path)', async()=>{
+            +'recovery path), with a single-line error', async()=>{
+            // multi-line client error -> envelope keeps the first line.
             mocks.post
                 .mockResolvedValueOnce({id: 'c_stub', name: 'n'})
-                .mockRejectedValueOnce(
-                    new Error('Cannot run more than 3 jobs in parallel'));
+                .mockRejectedValueOnce(new Error(
+                    'Error: Cannot run more than 3 jobs in parallel\n'
+                    +'  Status: 429\n  Hint: serialise your launches.'));
             const exit = vi.spyOn(process, 'exit')
                 .mockImplementation(()=>undefined as never);
             const error = vi.spyOn(console, 'error')
@@ -293,7 +297,7 @@ describe('commands/scraper', ()=>{
                 expect.objectContaining({
                     collector_id: 'c_stub',
                     status: 'ai_trigger_failed',
-                    error: expect.stringMatching(/parallel/),
+                    error: 'Cannot run more than 3 jobs in parallel',
                     view_url: 'https://brightdata.com/cp/scrapers/c_stub',
                 }),
                 expect.objectContaining({output: 'create.json'})
@@ -407,9 +411,6 @@ describe('commands/scraper', ()=>{
                     timeout_label: expect.stringContaining('c_abc'),
                 })
             );
-            // PR-2: -o now writes an envelope with collector_id,
-            // not the raw progress payload. The documented
-            // `jq -r '.collector_id'` recipe depends on this.
             expect(mocks.print).toHaveBeenCalledWith(
                 expect.objectContaining({
                     collector_id: 'c_abc',

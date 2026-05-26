@@ -348,10 +348,12 @@ This makes the documented chain in [recipes.md](https://github.com/brightdata/sk
 
 ```bash
 brightdata scraper create https://example.com/product/1 "..." \
-    --pretty -o create.json
+    -o create.json
 COLLECTOR_ID=$(jq -r '.collector_id' create.json)
 brightdata scraper run "$COLLECTOR_ID" https://example.com/product/2
 ```
+
+> The file format follows the `-o` extension, so `.json` is written compact (ideal for `jq`). Use `--pretty` for indented JSON on stdout when you omit `-o`.
 
 Use `--legacy-output` if you have an existing script that depended on the pre-v0.3 bare-progress shape; the flag is supported for one minor version while you migrate.
 
@@ -365,7 +367,7 @@ brightdata scraper create https://example.com/product/1 \
 # Name the scraper and save the envelope to a file
 brightdata scraper create https://example.com/product/1 \
     "Extract title, price, and image URL from this product page" \
-    --name my-product-scraper --pretty -o create.json
+    --name my-product-scraper -o create.json
 
 # Capture the collector_id for chaining
 COLLECTOR_ID=$(jq -r '.collector_id' create.json)

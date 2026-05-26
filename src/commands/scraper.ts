@@ -24,6 +24,7 @@ const AI_TRIGGER_PATH = 'automate_template';
 const AI_PROGRESS_PATH = 'automate_template/progress';
 const RUNNING_SENTINEL = '__running__';
 const DONE_STATUS = 'done';
+const TERMINAL_FAIL_STATUSES = ['failed', 'error', 'cancelled'];
 const TRIGGER_IMMEDIATE_ENDPOINT = '/dca/trigger_immediate';
 const GET_RESULT_ENDPOINT = '/dca/get_result';
 const SYNC_CRAWL_ENDPOINT = '/dca/crawl';
@@ -64,8 +65,12 @@ const extract_progress_status = (
         return undefined;
     if (typeof result.status != 'string')
         return undefined;
-    if (result.status == DONE_STATUS)
-        return DONE_STATUS;
+    // terminal statuses stop polling; non-done ones route to failure.
+    if (result.status == DONE_STATUS
+        || TERMINAL_FAIL_STATUSES.includes(result.status))
+    {
+        return result.status;
+    }
     return RUNNING_SENTINEL;
 };
 
@@ -84,10 +89,9 @@ const format_create_summary = (
     return lines.join('\n');
 };
 
-// PR-2: every termination path of `scraper create` writes this same
-// envelope shape to -o. Solves the broken `jq -r '.collector_id'`
-// recipe in references/recipes.md (today's -o file contains only the
-// final progress payload, with no id field).
+const clean_error_message = (msg: string): string=>
+    msg.split('\n')[0].replace(/^Error:\s*/, '').trim();
+
 const build_create_envelope = (params: {
     collector_id: string;
     name: string;
@@ -105,20 +109,22 @@ const build_create_envelope = (params: {
     ...(params.error ? {error: params.error} : {}),
 });
 
-// Write the envelope (or, in --legacy-output mode, the bare progress
-// payload) to wherever the user asked. Centralised so success and
-// every failure path share one I/O code path.
+const wants_machine_output = (opts: Scraper_create_opts): boolean=>
+    !!(opts.json || opts.pretty || opts.output) || !is_tty;
+
 const emit_create_output = (
     envelope: Create_envelope,
     progress: Ai_progress_response|null,
     opts: Scraper_create_opts
-): void=>{
+): boolean=>{
+    if (!wants_machine_output(opts))
+        return false;
     const print_opts = {json: opts.json, pretty: opts.pretty,
         output: opts.output};
     const payload = opts.legacyOutput && progress
         ? (progress as unknown) : envelope;
-    if (opts.json || opts.pretty || opts.output || !is_tty)
-        print(payload, print_opts);
+    print(payload, print_opts);
+    return true;
 };
 
 const handle_create_scraper = async(
@@ -149,8 +155,6 @@ const handle_create_scraper = async(
         create_spinner.stop();
         if (!template.id)
         {
-            // Template POST didn't return an id — no collector_id to
-            // envelope, so no -o file to write. Same as today.
             fail('Failed to create scraper template (missing id).');
             return;
         }
@@ -181,15 +185,13 @@ const handle_create_scraper = async(
             `Failed to start AI generation for collector `
             +`${collector_id}: ${msg}`
         );
-        // PR-2: write the envelope even on failure so the user's
-        // automation can read collector_id + status from the file.
         emit_create_output(
             build_create_envelope({
                 collector_id,
                 name: scraper_name,
                 status: 'ai_trigger_failed',
                 created_at,
-                error: msg,
+                error: clean_error_message(msg),
             }),
             null,
             opts
@@ -243,8 +245,7 @@ const handle_create_scraper = async(
             process.exit(1);
             return;
         }
-        // Success path.
-        emit_create_output(
+        const emitted = emit_create_output(
             build_create_envelope({
                 collector_id,
                 name: scraper_name,
@@ -255,7 +256,7 @@ const handle_create_scraper = async(
             progress,
             opts
         );
-        if (opts.json || opts.pretty || opts.output || !is_tty)
+        if (emitted)
             return;
         success(format_create_summary(
             collector_id, scraper_name, progress));
@@ -271,7 +272,7 @@ const handle_create_scraper = async(
                 name: scraper_name,
                 status: 'poll_failed',
                 created_at,
-                error: msg,
+                error: clean_error_message(msg),
             }),
             null,
             opts
