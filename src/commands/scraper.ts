@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import {Command} from 'commander';
 import {post, get, type Body_hint, type Retry_config,
     type Retry_event} from '../utils/client';
@@ -381,6 +382,108 @@ const parse_sync_timeout = (raw: string|undefined): number=>{
     return Math.floor(value);
 };
 
+const is_valid_url = (s: string): boolean=>{
+    try {
+        // eslint-disable-next-line no-new
+        new URL(s);
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+const parse_urls_arg = (raw: string): string[]=>{
+    return raw.split(',')
+        .map(u=>u.trim())
+        .filter(u=>u.length > 0);
+};
+
+const read_input_file = (path: string): string[]=>{
+    let raw: string;
+    try {
+        raw = readFileSync(path, 'utf8');
+    } catch(e) {
+        throw new Error(
+            `Cannot read --input-file "${path}": ${(e as Error).message}`);
+    }
+    const trimmed = raw.trim();
+    if (!trimmed)
+        return [];
+    if (trimmed.startsWith('[') || trimmed.startsWith('{'))
+    {
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(trimmed);
+        } catch(e) {
+            throw new Error(
+                `--input-file "${path}" looks like JSON but failed to parse: `
+                +`${(e as Error).message}`);
+        }
+        if (!Array.isArray(parsed))
+            throw new Error(
+                `--input-file "${path}" JSON must be an array of URL `
+                +`strings or {url} objects, got ${typeof parsed}.`);
+        const urls: string[] = [];
+        for (const [i, item] of parsed.entries())
+        {
+            if (typeof item == 'string')
+            {
+                urls.push(item);
+                continue;
+            }
+            if (item && typeof item == 'object'
+                && typeof (item as {url?: unknown}).url == 'string')
+            {
+                urls.push((item as {url: string}).url);
+                continue;
+            }
+            throw new Error(
+                `--input-file "${path}" entry ${i} must be a string or `
+                +'an object with a "url" string field.');
+        }
+        return urls;
+    }
+    return trimmed.split(/\r?\n/)
+        .map(line=>line.replace(/\s+#.*$/, '').trim())
+        .filter(line=>line.length > 0 && !line.startsWith('#'));
+};
+
+const resolve_run_inputs = (
+    positional: string|undefined,
+    opts: Pick<Scraper_run_opts, 'urls'|'inputFile'>
+): string[]=>{
+    const sources: string[] = [];
+    if (positional)
+        sources.push('<url>');
+    if (opts.urls)
+        sources.push('--urls');
+    if (opts.inputFile)
+        sources.push('--input-file');
+    if (sources.length == 0)
+        throw new Error(
+            'scraper run requires one of: <url> positional, --urls, '
+            +'or --input-file.');
+    if (sources.length > 1)
+        throw new Error(
+            `scraper run accepts only one input source; got: `
+            +`${sources.join(', ')}. Pick one.`);
+    let urls: string[];
+    if (positional)
+        urls = [positional];
+    else if (opts.urls)
+        urls = parse_urls_arg(opts.urls);
+    else
+        urls = read_input_file(opts.inputFile!);
+    if (urls.length == 0)
+        throw new Error('No URLs to scrape after parsing inputs.');
+    const invalid = urls.filter(u=>!is_valid_url(u));
+    if (invalid.length > 0)
+        throw new Error(
+            `Invalid URL(s): ${invalid.slice(0, 3).join(', ')}`
+            +(invalid.length > 3 ? ` (+${invalid.length - 3} more)` : ''));
+    return urls;
+};
+
 const build_run_request = (url: string): Run_request=>({url});
 
 const build_run_query = (
@@ -491,8 +594,9 @@ const fetch_raw = async(
 const run_batch = async(
     api_key: string,
     collector_id: string,
-    url: string,
-    opts: Scraper_run_opts
+    urls: string[],
+    opts: Scraper_run_opts,
+    reason: 'page_limit_fallback'|'multi_url' = 'page_limit_fallback'
 )=>{
     const timeout_raw = opts.timeout ?? String(BATCH_TIMEOUT_DEFAULT);
     let timeout = BATCH_TIMEOUT_DEFAULT;
@@ -502,8 +606,17 @@ const run_batch = async(
         fail((e as Error).message);
         return;
     }
-    console.error(dim(
-        'Realtime page limit exceeded — switching to batch mode...'));
+    if (reason == 'page_limit_fallback')
+    {
+        console.error(dim(
+            'Realtime page limit exceeded — switching to batch mode...'));
+    }
+    else
+    {
+        console.error(dim(
+            `Running batch for ${urls.length} URLs `
+            +'via /dca/trigger...'));
+    }
     const trigger_spinner = start_spinner('Submitting batch job...');
     let collection_id = '';
     try {
@@ -511,7 +624,7 @@ const run_batch = async(
         const trigger = await post<Batch_trigger_response>(
             api_key,
             `${BATCH_TRIGGER_ENDPOINT}?${query}`,
-            [build_run_request(url)],
+            urls.map(build_run_request),
             {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
         );
         trigger_spinner.stop();
@@ -570,10 +683,31 @@ const run_batch = async(
 
 const handle_run_scraper = async(
     collector_id: string,
-    url: string,
+    url: string|undefined,
     opts: Scraper_run_opts
 )=>{
     const api_key = ensure_authenticated(opts.apiKey);
+    let urls: string[];
+    try {
+        urls = resolve_run_inputs(url, opts);
+    } catch(e) {
+        fail((e as Error).message);
+        return;
+    }
+    if (urls.length > 1)
+    {
+        if (opts.sync)
+        {
+            fail(
+                '--sync cannot be combined with --urls / --input-file. '
+                +'The /dca/crawl endpoint accepts only a single URL. '
+                +'Drop --sync to use the batch endpoint (/dca/trigger).');
+            return;
+        }
+        await run_batch(api_key, collector_id, urls, opts, 'multi_url');
+        return;
+    }
+    const single_url = urls[0];
     if (opts.sync)
     {
         let sync_timeout = SYNC_TIMEOUT_DEFAULT;
@@ -590,7 +724,7 @@ const handle_run_scraper = async(
             const res = await fetch_raw(api_key,
                 `${SYNC_CRAWL_ENDPOINT}?${query}`, {
                     method: 'POST',
-                    body: JSON.stringify(build_run_request(url)),
+                    body: JSON.stringify(build_run_request(single_url)),
                 });
             spinner.stop();
             if (res.status == 202)
@@ -618,7 +752,7 @@ const handle_run_scraper = async(
             const data = parse_result_body(res.body);
             if (is_realtime_page_limit_error(data))
             {
-                await run_batch(api_key, collector_id, url, opts);
+                await run_batch(api_key, collector_id, [single_url], opts);
                 return;
             }
             print(data, {json: opts.json, pretty: opts.pretty,
@@ -647,7 +781,7 @@ const handle_run_scraper = async(
         const trigger = await post<Trigger_immediate_response>(
             api_key,
             `${TRIGGER_IMMEDIATE_ENDPOINT}?${trigger_query}`,
-            build_run_request(url),
+            build_run_request(single_url),
             {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
         );
         trigger_spinner.stop();
@@ -689,7 +823,7 @@ const handle_run_scraper = async(
         const data = parse_result_body(poll_result.result.body);
         if (is_realtime_page_limit_error(data))
         {
-            await run_batch(api_key, collector_id, url, opts);
+            await run_batch(api_key, collector_id, [single_url], opts);
             return;
         }
         print(data, {json: opts.json, pretty: opts.pretty,
@@ -737,17 +871,28 @@ const create_subcommand = new Command('create')
     .action(handle_create_scraper);
 
 const run_subcommand = new Command('run')
-    .description('Run a Bright Data scraper on a URL and return the data')
+    .description(
+        'Run a Bright Data scraper on one or more URLs and return the data')
     .argument('<collector_id>',
         'Collector ID of the scraper (returned by `scraper create`)')
-    .argument('<url>', 'URL to scrape')
+    .argument('[url]',
+        'URL to scrape. Omit when using --urls or --input-file.')
+    .option('--urls <list>',
+        'Comma-separated list of URLs. Mirror of triggerWithUrls / '
+        +'trigger_with_urls from the Bright Data Scraper Studio '
+        +'reference SDKs. Routes via /dca/trigger as a single batch.')
+    .option('--input-file <path>',
+        'Path to a file with URLs: one per line (# comments and '
+        +'blank lines skipped), OR a JSON array of strings, OR a '
+        +'JSON array of {"url": "..."} objects.')
     .option('--sync',
-        'Use the synchronous /dca/crawl endpoint (server-side 25-50s cap)')
+        'Use the synchronous /dca/crawl endpoint (server-side 25-50s cap). '
+        +'Single-URL only.')
     .option('--sync-timeout <seconds>',
         `Sync-mode server timeout (${SYNC_TIMEOUT_MIN}-${SYNC_TIMEOUT_MAX}, `
         +`default ${SYNC_TIMEOUT_DEFAULT})`)
     .option('--timeout <seconds>',
-        'Polling timeout in async mode (default: 600)')
+        'Polling timeout in async mode (default: 600; batch mode: 3600)')
     .option('--name <name>', 'Human-readable job name')
     .option('--version <version>', 'Scraper version (e.g. "dev")')
     .option('-o, --output <path>', 'Write output to file')
@@ -786,4 +931,8 @@ export {
     AI_TRIGGER_DEFAULT_RETRIES,
     AI_TRIGGER_RETRY_BASE_MS,
     AI_TRIGGER_RETRY_MAX_MS,
+    parse_urls_arg,
+    read_input_file,
+    resolve_run_inputs,
+    is_valid_url,
 };

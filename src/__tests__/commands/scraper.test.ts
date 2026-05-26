@@ -1,3 +1,6 @@
+import {writeFileSync, mkdtempSync, rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
 import {Command} from 'commander';
 import type {Scraper_create_opts} from '../../types/scraper';
@@ -68,6 +71,10 @@ import {
     AI_TRIGGER_DEFAULT_RETRIES,
     AI_TRIGGER_RETRY_BASE_MS,
     AI_TRIGGER_RETRY_MAX_MS,
+    parse_urls_arg,
+    read_input_file,
+    resolve_run_inputs,
+    is_valid_url,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -1161,6 +1168,287 @@ describe('commands/scraper', ()=>{
             expect(msg).toMatch(/inspect or delete it manually/);
             exit.mockRestore();
             error.mockRestore();
+        });
+    });
+
+    describe('is_valid_url', ()=>{
+        it('accepts http/https URLs', ()=>{
+            expect(is_valid_url('https://example.com')).toBe(true);
+            expect(is_valid_url('http://example.com/a/b?c=1')).toBe(true);
+        });
+
+        it('rejects garbage', ()=>{
+            expect(is_valid_url('not a url')).toBe(false);
+            expect(is_valid_url('')).toBe(false);
+            expect(is_valid_url('  ')).toBe(false);
+        });
+    });
+
+    describe('parse_urls_arg', ()=>{
+        it('splits, trims, and drops empties', ()=>{
+            expect(parse_urls_arg(
+                ' https://a.com , https://b.com ,, https://c.com'))
+                .toEqual(['https://a.com', 'https://b.com', 'https://c.com']);
+        });
+
+        it('returns single URL for a non-comma input', ()=>{
+            expect(parse_urls_arg('https://only.example.com'))
+                .toEqual(['https://only.example.com']);
+        });
+
+        it('returns empty array for blank input', ()=>{
+            expect(parse_urls_arg('')).toEqual([]);
+            expect(parse_urls_arg('  , ,  ')).toEqual([]);
+        });
+    });
+
+    describe('read_input_file', ()=>{
+        let tmp_dir: string;
+
+        beforeEach(()=>{
+            tmp_dir = mkdtempSync(join(tmpdir(), 'bdata-test-'));
+        });
+
+        afterEach(()=>{
+            rmSync(tmp_dir, {recursive: true, force: true});
+        });
+
+        const write = (name: string, content: string): string=>{
+            const p = join(tmp_dir, name);
+            writeFileSync(p, content, 'utf8');
+            return p;
+        };
+
+        it('reads newline-separated URLs', ()=>{
+            const p = write('urls.txt',
+                'https://a.com\nhttps://b.com\nhttps://c.com');
+            expect(read_input_file(p)).toEqual([
+                'https://a.com', 'https://b.com', 'https://c.com']);
+        });
+
+        it('skips blank lines and # comments', ()=>{
+            const p = write('urls.txt',
+                '# top comment\n'
+                +'https://a.com\n'
+                +'\n'
+                +'   \n'
+                +'# section\n'
+                +'https://b.com    # inline comment ok\n'
+                +'https://c.com');
+            expect(read_input_file(p)).toEqual([
+                'https://a.com', 'https://b.com', 'https://c.com']);
+        });
+
+        it('reads JSON array of strings', ()=>{
+            const p = write('urls.json',
+                JSON.stringify(['https://a.com', 'https://b.com']));
+            expect(read_input_file(p)).toEqual([
+                'https://a.com', 'https://b.com']);
+        });
+
+        it('reads JSON array of {url} objects', ()=>{
+            const p = write('urls.json', JSON.stringify([
+                {url: 'https://a.com'},
+                {url: 'https://b.com', extra: 'ignored'},
+            ]));
+            expect(read_input_file(p)).toEqual([
+                'https://a.com', 'https://b.com']);
+        });
+
+        it('throws on missing file', ()=>{
+            expect(()=>read_input_file(join(tmp_dir, 'missing.txt')))
+                .toThrow(/Cannot read --input-file/);
+        });
+
+        it('throws on malformed JSON', ()=>{
+            const p = write('bad.json', '[{not valid');
+            expect(()=>read_input_file(p))
+                .toThrow(/failed to parse/);
+        });
+
+        it('throws on non-array JSON', ()=>{
+            const p = write('obj.json', '{"url": "https://a.com"}');
+            expect(()=>read_input_file(p))
+                .toThrow(/must be an array/);
+        });
+
+        it('throws on JSON entry with neither string nor {url}', ()=>{
+            const p = write('mixed.json',
+                JSON.stringify(['https://a.com', {wrong: 'field'}]));
+            expect(()=>read_input_file(p))
+                .toThrow(/must be a string or an object with a "url"/);
+        });
+
+        it('returns empty array for an empty file', ()=>{
+            const p = write('empty.txt', '   \n\n  ');
+            expect(read_input_file(p)).toEqual([]);
+        });
+    });
+
+    describe('resolve_run_inputs', ()=>{
+        let tmp_dir: string;
+
+        beforeEach(()=>{
+            tmp_dir = mkdtempSync(join(tmpdir(), 'bdata-test-'));
+        });
+
+        afterEach(()=>{
+            rmSync(tmp_dir, {recursive: true, force: true});
+        });
+
+        it('returns the positional URL as a single-element list', ()=>{
+            expect(resolve_run_inputs('https://a.com', {}))
+                .toEqual(['https://a.com']);
+        });
+
+        it('parses --urls', ()=>{
+            expect(resolve_run_inputs(undefined,
+                {urls: 'https://a.com,https://b.com'}))
+                .toEqual(['https://a.com', 'https://b.com']);
+        });
+
+        it('reads --input-file', ()=>{
+            const p = join(tmp_dir, 'urls.txt');
+            writeFileSync(p, 'https://a.com\nhttps://b.com', 'utf8');
+            expect(resolve_run_inputs(undefined, {inputFile: p}))
+                .toEqual(['https://a.com', 'https://b.com']);
+        });
+
+        it('rejects when no source is provided', ()=>{
+            expect(()=>resolve_run_inputs(undefined, {}))
+                .toThrow(/requires one of: <url> positional, --urls/);
+        });
+
+        it('rejects when multiple sources are provided', ()=>{
+            expect(()=>resolve_run_inputs('https://a.com',
+                {urls: 'https://b.com'}))
+                .toThrow(/only one input source/);
+            expect(()=>resolve_run_inputs(undefined,
+                {urls: 'https://a.com', inputFile: '/tmp/x'}))
+                .toThrow(/only one input source/);
+        });
+
+        it('rejects when parsed list is empty', ()=>{
+            expect(()=>resolve_run_inputs(undefined, {urls: '  , ,  '}))
+                .toThrow(/No URLs to scrape/);
+        });
+
+        it('rejects invalid URLs and names them', ()=>{
+            expect(()=>resolve_run_inputs(undefined,
+                {urls: 'https://a.com,not-a-url,also bad'}))
+                .toThrow(/Invalid URL\(s\):.*not-a-url/);
+        });
+    });
+
+    describe('handle_run_scraper multi-URL', ()=>{
+        let fetch_spy: ReturnType<typeof vi.spyOn>;
+        let tmp_dir: string;
+
+        beforeEach(()=>{
+            fetch_spy = vi.spyOn(global, 'fetch') as never;
+            tmp_dir = mkdtempSync(join(tmpdir(), 'bdata-test-'));
+        });
+
+        afterEach(()=>{
+            fetch_spy.mockRestore();
+            rmSync(tmp_dir, {recursive: true, force: true});
+        });
+
+        it('--urls posts an array body to /dca/trigger and polls /dca/dataset',
+            async()=>{
+            mocks.post.mockResolvedValueOnce({collection_id: 'd_batch'});
+            fetch_spy.mockImplementation(()=>Promise.resolve({
+                status: 200,
+                text: ()=>Promise.resolve(
+                    '[{"title":"A"},{"title":"B"},{"title":"C"}]'),
+            } as unknown as Response));
+            mocks.poll_until.mockImplementationOnce(async(o: never)=>{
+                const cfg = o as {fetch_once: ()=>Promise<unknown>};
+                const r = await cfg.fetch_once();
+                return {result: r, attempts: 1, last_status: '__ready__'};
+            });
+            await handle_run_scraper('c_abc', undefined, {
+                urls: 'https://a.com,https://b.com,https://c.com',
+            });
+            expect(mocks.post).toHaveBeenCalledTimes(1);
+            const call = mocks.post.mock.calls[0];
+            expect(String(call[1])).toMatch(/\/dca\/trigger\?collector=c_abc/);
+            expect(call[2]).toEqual([
+                {url: 'https://a.com'},
+                {url: 'https://b.com'},
+                {url: 'https://c.com'},
+            ]);
+            expect(mocks.print).toHaveBeenCalledWith(
+                [{title: 'A'}, {title: 'B'}, {title: 'C'}],
+                {json: undefined, pretty: undefined, output: undefined}
+            );
+        });
+
+        it('--input-file routes to the same batch path', async()=>{
+            const p = join(tmp_dir, 'urls.txt');
+            writeFileSync(p, 'https://a.com\nhttps://b.com', 'utf8');
+            mocks.post.mockResolvedValueOnce({collection_id: 'd_batch'});
+            fetch_spy.mockImplementation(()=>Promise.resolve({
+                status: 200,
+                text: ()=>Promise.resolve('[{"ok":1},{"ok":2}]'),
+            } as unknown as Response));
+            mocks.poll_until.mockImplementationOnce(async(o: never)=>{
+                const cfg = o as {fetch_once: ()=>Promise<unknown>};
+                const r = await cfg.fetch_once();
+                return {result: r, attempts: 1, last_status: '__ready__'};
+            });
+            await handle_run_scraper('c_abc', undefined, {inputFile: p});
+            expect(mocks.post.mock.calls[0][2]).toEqual([
+                {url: 'https://a.com'},
+                {url: 'https://b.com'},
+            ]);
+        });
+
+        it('rejects --sync combined with --urls', async()=>{
+            await expect(
+                handle_run_scraper('c_abc', undefined, {
+                    sync: true,
+                    urls: 'https://a.com,https://b.com',
+                })
+            ).rejects.toThrow(/--sync cannot be combined with --urls/);
+            expect(mocks.fail).toHaveBeenCalledWith(
+                expect.stringContaining(
+                    '--sync cannot be combined with --urls'));
+            expect(mocks.post).not.toHaveBeenCalled();
+        });
+
+        it('rejects when no URL source is provided', async()=>{
+            await expect(
+                handle_run_scraper('c_abc', undefined, {})
+            ).rejects.toThrow(
+                /requires one of: <url> positional, --urls, or --input-file/);
+        });
+
+        it('rejects when positional and --urls are both set', async()=>{
+            await expect(
+                handle_run_scraper('c_abc', 'https://a.com',
+                    {urls: 'https://b.com'})
+            ).rejects.toThrow(/only one input source/);
+        });
+
+        it('single URL via --urls still takes the legacy single path',
+            async()=>{
+            mocks.post.mockResolvedValueOnce({response_id: 'r_xyz'});
+            fetch_spy.mockImplementation(()=>Promise.resolve({
+                status: 200,
+                text: ()=>Promise.resolve('{"title":"only"}'),
+            } as unknown as Response));
+            mocks.poll_until.mockImplementationOnce(async(o: never)=>{
+                const cfg = o as {fetch_once: ()=>Promise<unknown>};
+                const r = await cfg.fetch_once();
+                return {result: r, attempts: 1, last_status: '__ready__'};
+            });
+            await handle_run_scraper('c_abc', undefined,
+                {urls: 'https://only.com'});
+            expect(String(mocks.post.mock.calls[0][1])).toMatch(
+                /\/dca\/trigger_immediate\?collector=c_abc/);
+            expect(mocks.post.mock.calls[0][2]).toEqual(
+                {url: 'https://only.com'});
         });
     });
 });
