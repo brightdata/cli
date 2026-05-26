@@ -1,4 +1,6 @@
 import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
+import {Command} from 'commander';
+import type {Scraper_create_opts} from '../../types/scraper';
 
 const mocks = vi.hoisted(()=>({
     post: vi.fn(),
@@ -60,6 +62,12 @@ import {
     is_realtime_page_limit_error,
     classify_dataset,
     SCRAPER_BODY_HINTS,
+    parse_max_retries,
+    build_ai_trigger_retry,
+    print_stub_recovery_note,
+    AI_TRIGGER_DEFAULT_RETRIES,
+    AI_TRIGGER_RETRY_BASE_MS,
+    AI_TRIGGER_RETRY_MAX_MS,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -923,6 +931,236 @@ describe('commands/scraper', ()=>{
                 [{ok: 1}],
                 {json: undefined, pretty: undefined, output: undefined}
             );
+        });
+    });
+
+    describe('parse_max_retries', ()=>{
+        it('defaults to the AI-trigger default when undefined', ()=>{
+            expect(parse_max_retries(undefined))
+                .toBe(AI_TRIGGER_DEFAULT_RETRIES);
+        });
+
+        it('parses a non-negative integer', ()=>{
+            expect(parse_max_retries('0')).toBe(0);
+            expect(parse_max_retries('1')).toBe(1);
+            expect(parse_max_retries('8')).toBe(8);
+        });
+
+        it('rejects negatives, floats, and non-numeric', ()=>{
+            expect(()=>parse_max_retries('-1')).toThrow(/non-negative/);
+            expect(()=>parse_max_retries('1.5')).toThrow(/non-negative/);
+            expect(()=>parse_max_retries('abc')).toThrow(/non-negative/);
+        });
+    });
+
+    describe('build_ai_trigger_retry', ()=>{
+        it('returns the default schedule when no flags are set', ()=>{
+            const cfg = build_ai_trigger_retry({});
+            expect(cfg.max_attempts).toBe(AI_TRIGGER_DEFAULT_RETRIES);
+            expect(cfg.base_ms).toBe(AI_TRIGGER_RETRY_BASE_MS);
+            expect(cfg.max_ms).toBe(AI_TRIGGER_RETRY_MAX_MS);
+            expect(typeof cfg.on_retry).toBe('function');
+        });
+
+        it('--max-retries overrides max_attempts', ()=>{
+            const cfg = build_ai_trigger_retry({maxRetries: '8'});
+            expect(cfg.max_attempts).toBe(8);
+            expect(cfg.base_ms).toBe(AI_TRIGGER_RETRY_BASE_MS);
+        });
+
+        it('--no-retry (retry===false) disables retries entirely', ()=>{
+            const cfg = build_ai_trigger_retry({retry: false});
+            expect(cfg.max_attempts).toBe(0);
+        });
+
+        it('on_retry emits a 429-specific stderr line when status=429',
+            ()=>{
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            build_ai_trigger_retry({}).on_retry!({
+                attempt: 1, max_attempts: 4,
+                delay_ms: 32_000, status: 429,
+            });
+            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(msg).toMatch(/AI-Flow concurrent-job cap/);
+            expect(msg).toMatch(/32s/);
+            expect(msg).toMatch(/retry 1\/4/);
+            error.mockRestore();
+        });
+
+        it('on_retry emits a generic transient line for non-429', ()=>{
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            build_ai_trigger_retry({}).on_retry!({
+                attempt: 2, max_attempts: 4,
+                delay_ms: 60_000, status: 503,
+            });
+            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(msg).toMatch(/Transient error/);
+            expect(msg).toMatch(/status 503/);
+            error.mockRestore();
+        });
+
+        it('on_retry handles network-error case (status=0)', ()=>{
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            build_ai_trigger_retry({}).on_retry!({
+                attempt: 1, max_attempts: 4,
+                delay_ms: 30_000, status: 0,
+            });
+            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(msg).toMatch(/status network/);
+            error.mockRestore();
+        });
+    });
+
+    describe('--no-retry flag wiring (commander)', ()=>{
+        it('maps --no-retry to retry===false so retries are disabled',
+            ()=>{
+            let captured: Scraper_create_opts|undefined;
+            const cmd = new Command('create')
+                .argument('[url]')
+                .argument('[desc]')
+                .option('--max-retries <n>', 'max')
+                .option('--no-retry', 'fail fast')
+                .action((_u, _d, opts: Scraper_create_opts)=>{
+                    captured = opts;
+                });
+            cmd.parse(['u', 'd', '--no-retry'], {from: 'user'});
+            expect(captured!.retry).toBe(false);
+            expect(build_ai_trigger_retry(captured!).max_attempts)
+                .toBe(0);
+        });
+    });
+
+    describe('print_stub_recovery_note', ()=>{
+        it('prints a dashboard URL and a manual-deletion notice', ()=>{
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            print_stub_recovery_note('c_xyz');
+            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(msg).toContain('c_xyz');
+            expect(msg).toMatch(
+                /https:\/\/brightdata\.com\/cp\/scrapers\/c_xyz/);
+            expect(msg).toMatch(/inspect or delete it manually/);
+            expect(msg).toMatch(/does not yet expose programmatic/);
+            error.mockRestore();
+        });
+
+        it('does nothing when collector_id is empty', ()=>{
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            print_stub_recovery_note('');
+            expect(error).not.toHaveBeenCalled();
+            error.mockRestore();
+        });
+    });
+
+    describe('handle_create_scraper retry + stub-nudge wiring', ()=>{
+        it('passes the AI-trigger retry config to the second post call',
+            async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_abc'})
+                .mockResolvedValueOnce({id: 'ia_xyz', queued: false});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: []},
+                attempts: 1,
+            });
+            await handle_create_scraper('https://x.com', 'd', {});
+            const ai_call_opts = mocks.post.mock.calls[1][3] as
+                {retry?: {max_attempts: number; base_ms: number}};
+            expect(ai_call_opts.retry).toBeDefined();
+            expect(ai_call_opts.retry!.max_attempts)
+                .toBe(AI_TRIGGER_DEFAULT_RETRIES);
+            expect(ai_call_opts.retry!.base_ms)
+                .toBe(AI_TRIGGER_RETRY_BASE_MS);
+        });
+
+        it('honors --max-retries on the AI-trigger', async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_abc'})
+                .mockResolvedValueOnce({id: 'ia_xyz', queued: false});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: []},
+                attempts: 1,
+            });
+            await handle_create_scraper('https://x.com', 'd',
+                {maxRetries: '10'});
+            const ai_call_opts = mocks.post.mock.calls[1][3] as
+                {retry?: {max_attempts: number}};
+            expect(ai_call_opts.retry!.max_attempts).toBe(10);
+        });
+
+        it('honors --no-retry (max_attempts = 0)', async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_abc'})
+                .mockResolvedValueOnce({id: 'ia_xyz', queued: false});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: []},
+                attempts: 1,
+            });
+            await handle_create_scraper('https://x.com', 'd',
+                {retry: false});
+            const ai_call_opts = mocks.post.mock.calls[1][3] as
+                {retry?: {max_attempts: number}};
+            expect(ai_call_opts.retry!.max_attempts).toBe(0);
+        });
+
+        it('emits the stub-recovery note when AI-trigger ultimately fails',
+            async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_stub'})
+                .mockRejectedValueOnce(
+                    new Error('Cannot run more than 3 jobs in parallel'));
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_create_scraper('https://x.com', 'd', {});
+            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(msg).toContain('c_stub');
+            expect(msg).toMatch(/inspect or delete it manually/);
+            exit.mockRestore();
+            error.mockRestore();
+        });
+
+        it('emits the stub-recovery note when poll status != done',
+            async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_abc'})
+                .mockResolvedValueOnce({id: 'ia_xyz', queued: false});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'failed', completed_steps: []},
+                attempts: 2,
+            });
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_create_scraper('https://x.com', 'd', {});
+            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(msg).toMatch(/inspect or delete it manually/);
+            expect(msg).toContain('c_abc');
+            exit.mockRestore();
+            error.mockRestore();
+        });
+
+        it('emits the stub-recovery note when polling itself throws',
+            async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'c_abc'})
+                .mockResolvedValueOnce({id: 'ia_xyz', queued: false});
+            mocks.poll_until.mockRejectedValue(
+                new Error('Timeout after 600 seconds'));
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_create_scraper('https://x.com', 'd', {});
+            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(msg).toMatch(/inspect or delete it manually/);
+            exit.mockRestore();
+            error.mockRestore();
         });
     });
 });

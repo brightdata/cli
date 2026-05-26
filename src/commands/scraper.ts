@@ -1,5 +1,6 @@
 import {Command} from 'commander';
-import {post, get, type Body_hint} from '../utils/client';
+import {post, get, type Body_hint, type Retry_config,
+    type Retry_event} from '../utils/client';
 import {load as load_config} from '../utils/config';
 import {ensure_authenticated} from '../utils/auth';
 import {start as start_spinner} from '../utils/spinner';
@@ -57,6 +58,60 @@ const PENDING_SENTINEL = '__pending__';
 const BATCH_POLL_INTERVAL_MS = 10_000;
 const BATCH_TIMEOUT_DEFAULT = 3600;
 const REALTIME_LIMIT_MARKER = 'realtime job limit';
+
+const AI_TRIGGER_RETRY_BASE_MS = 30_000;
+const AI_TRIGGER_RETRY_MAX_MS = 240_000;
+const AI_TRIGGER_DEFAULT_RETRIES = 4;
+
+const parse_max_retries = (raw: string|undefined): number=>{
+    if (raw == null) return AI_TRIGGER_DEFAULT_RETRIES;
+    const n = +raw;
+    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n))
+        throw new Error(
+            `Invalid --max-retries "${raw}". `
+            +'Must be a non-negative integer.');
+    return n;
+};
+
+const build_ai_trigger_retry = (
+    opts: Pick<Scraper_create_opts, 'maxRetries'|'retry'>
+): Retry_config=>{
+    if (opts.retry === false)
+        return {max_attempts: 0};
+    const max_attempts = parse_max_retries(opts.maxRetries);
+    return {
+        max_attempts,
+        base_ms: AI_TRIGGER_RETRY_BASE_MS,
+        max_ms: AI_TRIGGER_RETRY_MAX_MS,
+        on_retry: (e: Retry_event)=>{
+            const seconds = Math.round(e.delay_ms / 1000);
+            if (e.status === 429)
+            {
+                console.error(dim(
+                    `Hit AI-Flow concurrent-job cap (429). Waiting `
+                    +`${seconds}s before retry ${e.attempt}/`
+                    +`${e.max_attempts}...`));
+            }
+            else
+            {
+                console.error(dim(
+                    `Transient error (status ${e.status || 'network'}). `
+                    +`Waiting ${seconds}s before retry ${e.attempt}/`
+                    +`${e.max_attempts}...`));
+            }
+        },
+    };
+};
+
+const print_stub_recovery_note = (collector_id: string): void=>{
+    if (!collector_id) return;
+    console.error(dim(
+        `Note: a half-built collector was created at ${collector_id}.\n`
+        +`Open https://brightdata.com/cp/scrapers/${collector_id} `
+        +'to inspect or delete it manually in the web UI.\n'
+        +'(Bright Data does not yet expose programmatic deletion.)'
+    ));
+};
 
 const build_template_request = (
     opts: Scraper_create_opts
@@ -189,12 +244,21 @@ const handle_create_scraper = async(
         return;
     }
     const trigger_spinner = start_spinner('Triggering AI generation...');
+    let ai_retry: Retry_config|undefined;
+    try {
+        ai_retry = build_ai_trigger_retry(opts);
+    } catch(e) {
+        trigger_spinner.stop();
+        fail((e as Error).message);
+        return;
+    }
     try {
         await post<Trigger_ai_response>(
             api_key,
             `/dca/collectors/${collector_id}/${AI_TRIGGER_PATH}`,
             build_ai_request(url, description),
-            {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
+            {timing: opts.timing, hints: SCRAPER_BODY_HINTS,
+                retry: ai_retry}
         );
         trigger_spinner.stop();
     } catch(e) {
@@ -215,6 +279,7 @@ const handle_create_scraper = async(
             null,
             opts
         );
+        print_stub_recovery_note(collector_id);
         process.exit(1);
         return;
     }
@@ -261,6 +326,7 @@ const handle_create_scraper = async(
                 progress,
                 opts
             );
+            print_stub_recovery_note(collector_id);
             process.exit(1);
             return;
         }
@@ -296,6 +362,7 @@ const handle_create_scraper = async(
             null,
             opts
         );
+        print_stub_recovery_note(collector_id);
         process.exit(1);
         return;
     }
@@ -651,6 +718,13 @@ const create_subcommand = new Command('create')
         +'(default: https://example.com/webhook)')
     .option('--timeout <seconds>',
         'Polling timeout in seconds (default: 600)')
+    .option('--max-retries <n>',
+        'Max retries on the AI-Flow concurrent-job cap 429 '
+        +`(default: ${AI_TRIGGER_DEFAULT_RETRIES}). Each wait grows `
+        +'exponentially with jitter, up to ~4 min between attempts.')
+    .option('--no-retry',
+        'Fail immediately on 429 instead of waiting through the cap. '
+        +'Equivalent to --max-retries 0.')
     .option('-o, --output <path>', 'Write output to file')
     .option('--json', 'Force JSON output')
     .option('--pretty', 'Pretty-print JSON output')
@@ -706,4 +780,10 @@ export {
     is_realtime_page_limit_error,
     classify_dataset,
     SCRAPER_BODY_HINTS,
+    parse_max_retries,
+    build_ai_trigger_retry,
+    print_stub_recovery_note,
+    AI_TRIGGER_DEFAULT_RETRIES,
+    AI_TRIGGER_RETRY_BASE_MS,
+    AI_TRIGGER_RETRY_MAX_MS,
 };

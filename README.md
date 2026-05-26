@@ -319,6 +319,8 @@ brightdata scraper create <url> <description> [options]
 | `--name <name>` | Scraper template name (default: `cli-scraper-<timestamp>`) |
 | `--deliver-webhook <url>` | Webhook URL for the deliver stub (default: `https://example.com/webhook`) |
 | `--timeout <seconds>` | Polling timeout in seconds (default: `600`) |
+| `--max-retries <n>` | Max retries on the AI-Flow concurrent-job cap 429 (default: `4`). See below. |
+| `--no-retry` | Fail immediately on 429 instead of waiting. Same as `--max-retries 0`. |
 | `-o, --output <path>` | Write the JSON envelope to a file (see below) |
 | `--json` / `--pretty` | JSON output (raw / indented) |
 | `--legacy-output` | Write the pre-v0.3 bare AI-progress payload to `-o` instead of the envelope. Migration only. |
@@ -357,6 +359,21 @@ brightdata scraper run "$COLLECTOR_ID" https://example.com/product/2
 
 Use `--legacy-output` if you have an existing script that depended on the pre-v0.3 bare-progress shape; the flag is supported for one minor version while you migrate.
 
+#### Concurrent-job cap & auto-backoff
+
+The Bright Data AI Flow caps concurrent `scraper create` generations per account (currently 3). If you exceed it, the API returns `429 Cannot run more than N jobs in parallel`. The CLI handles this automatically: it waits with exponential backoff + jitter and retries up to `--max-retries` times (default 4). During the wait the CLI prints status lines so you know it isn't hung:
+
+```
+Triggering AI generation...
+Hit AI-Flow concurrent-job cap (429). Waiting 32s before retry 1/4...
+Hit AI-Flow concurrent-job cap (429). Waiting 67s before retry 2/4...
+Generating scraper...
+```
+
+If the cap is still hit after all retries, the CLI exits with a stderr note pointing at the half-built collector's dashboard URL so you can inspect or delete it manually (Bright Data does not yet expose programmatic collector deletion).
+
+Use `--no-retry` if you want the old fail-fast behavior — typically for scripts that prefer to handle backoff themselves.
+
 **Examples**
 
 ```bash
@@ -371,6 +388,17 @@ brightdata scraper create https://example.com/product/1 \
 
 # Capture the collector_id for chaining
 COLLECTOR_ID=$(jq -r '.collector_id' create.json)
+
+# Fan out 10 parallel creates — the CLI serialises automatically via 429 backoff
+for url in $(cat urls.txt); do
+    brightdata scraper create "$url" "Extract title, price, ..." \
+        --name "scraper-$(basename $url)" &
+done; wait
+
+# Disable the auto-backoff (fail fast on 429)
+brightdata scraper create https://example.com/product/1 \
+    "Extract title, price, and image URL from this product page" \
+    --no-retry
 
 # Use a custom webhook delivery URL
 brightdata scraper create https://example.com/product/1 \

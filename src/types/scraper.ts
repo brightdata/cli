@@ -46,6 +46,8 @@ type Scraper_create_opts = {
     timing?: boolean;
     apiKey?: string;
     legacyOutput?: boolean; // emit the pre-v0.3 bare payload to -o
+    maxRetries?: string;
+    retry?: boolean;
 };
 
 type Create_envelope = {
