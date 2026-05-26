@@ -11,10 +11,8 @@ const ERROR_HINTS: Record<number, string> = {
     429: 'Rate limit exceeded. Wait a moment and try again.',
 };
 
-// Each command can supply its own ordered list of body-pattern overrides
-// via Request_opts.hints. The shared HTTP layer knows nothing about
-// per-command error semantics — it just consults the caller's hints
-// before falling back to the generic ERROR_HINTS map.
+// Commands pass body-pattern overrides via Request_opts.hints; the
+// client stays generic, consulting them before the ERROR_HINTS map.
 type Body_hint = {pattern: RegExp; hint: string};
 
 const pick_hint = (

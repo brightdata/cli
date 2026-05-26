@@ -69,10 +69,8 @@ describe('commands/scraper', ()=>{
         mocks.start.mockReturnValue({stop: mocks.stop});
     });
 
-    // PR-12: AI Scraper Studio specific hints live with this command,
-    // not in the shared HTTP client. These tests assert (a) the
-    // patterns are well-formed and (b) they actually travel to the
-    // HTTP layer on every API call this command makes.
+    // Scraper hints live with this command, not the shared client, and
+    // must travel to the HTTP layer on every API call the command makes.
     describe('SCRAPER_BODY_HINTS', ()=>{
         it('contains a hint for the stub-collector 403 response body',
             ()=>{
@@ -117,9 +115,6 @@ describe('commands/scraper', ()=>{
                 'extract title',
                 {}
             );
-            // Both `post` calls (template create + AI trigger) must
-            // include the scraper hints so any 4xx is translated
-            // with the right vocabulary.
             for (const call of mocks.post.mock.calls)
             {
                 const opts = call[3] as {hints?: unknown};

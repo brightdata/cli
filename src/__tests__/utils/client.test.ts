@@ -1,10 +1,8 @@
 import {describe, it, expect} from 'vitest';
 import {pick_hint, ERROR_HINTS, type Body_hint} from '../../utils/client';
 
-// pick_hint is the layer the per-command hint lists plug into.
-// The client itself ships ZERO command-specific patterns — every test
-// here uses generic mock patterns so the contract is clear.
-
+// Generic mock patterns only — the client ships no command-specific
+// patterns of its own, so the pick_hint contract stays clear.
 const MOCK_HINTS: Body_hint[] = [
     {pattern: /quota.*exceeded/i,
         hint: 'Your monthly quota is exhausted. Top up in the dashboard.'},

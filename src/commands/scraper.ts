@@ -18,20 +18,8 @@ import type {
     Batch_trigger_response,
 } from '../types/scraper';
 
-// AI Scraper Studio specific error-body hints. Lives with the command
-// that owns the DCA endpoints — NOT in the shared HTTP client — so the
-// AI-Flow vocabulary doesn't leak into `scrape`, `search`, `discover`,
-// `pipelines`, or `browser`.
-//
-// Both patterns describe the same incident from two perspectives:
-//   * The 429 fires during `scraper create` when too many AI-Flow jobs
-//     are in flight at once (undocumented 3-job cap as of v0.2.0).
-//   * The 403 "Collector does not have a template" fires later when
-//     the user tries to `scraper run` against the half-built
-//     collector_id the failed create left behind.
-//
-// First match wins. Add more patterns here as we learn about other
-// scraper-API error bodies that deserve a better hint.
+// Scraper-studio body-pattern hints. Kept here, not in client.ts, so
+// the DCA vocabulary doesn't leak into other commands. First match wins.
 const SCRAPER_BODY_HINTS: Body_hint[] = [
     {
         pattern: /collector does not have a template/i,
