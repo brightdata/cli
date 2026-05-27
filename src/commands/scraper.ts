@@ -525,6 +525,8 @@ const handle_heal_scraper = async(
             },
         });
         poll_spinner.stop();
+        console.error(dim(
+            `Done in ${poll_result.attempts} poll attempts.`));
         const progress = poll_result.result;
         if (progress.status != DONE_STATUS)
         {
@@ -1197,4 +1199,5 @@ export {
     build_heal_envelope,
     print_heal_recovery_note,
     handle_heal_scraper,
+    format_heal_summary,
 };

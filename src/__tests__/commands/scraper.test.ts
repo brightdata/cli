@@ -81,6 +81,7 @@ import {
     build_heal_envelope,
     print_heal_recovery_note,
     handle_heal_scraper,
+    format_heal_summary,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -252,6 +253,29 @@ describe('commands/scraper', ()=>{
         it('handles missing completed_steps gracefully', ()=>{
             const out = format_create_summary('c_abc', 'name', {status: 'done'});
             expect(out).toContain('c_abc');
+            expect(out).toContain('0');
+        });
+    });
+
+    describe('format_heal_summary', ()=>{
+        it('includes the collector id, prompt, step count, and '
+            +'next-step command', ()=>{
+            const out = format_heal_summary(
+                'c_abc',
+                'fix the price selector',
+                'bdata scraper run c_abc https://x.com/p/1',
+                {status: 'done', completed_steps: ['plan', 'patch']}
+            );
+            expect(out).toContain('c_abc');
+            expect(out).toContain('fix the price selector');
+            expect(out).toContain('2');
+            expect(out).toContain(
+                'bdata scraper run c_abc https://x.com/p/1');
+        });
+
+        it('handles missing completed_steps as zero', ()=>{
+            const out = format_heal_summary('c_abc', 'p',
+                'bdata scraper run c_abc <url>', {status: 'done'});
             expect(out).toContain('0');
         });
     });
