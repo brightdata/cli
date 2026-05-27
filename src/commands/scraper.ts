@@ -23,6 +23,7 @@ import type {
     Scraper_run_opts,
     Batch_trigger_response,
     Scraper_heal_opts,
+    Scraper_approve_opts,
 } from '../types/scraper';
 
 // Scraper-studio body-pattern hints. Kept here, not in client.ts, so
@@ -689,6 +690,88 @@ const handle_heal_scraper = async(
         process.exit(1);
         return;
     }
+};
+
+const handle_approve_scraper = async(
+    collector_id: string,
+    opts: Scraper_approve_opts
+)=>{
+    const api_key = ensure_authenticated(opts.apiKey);
+    let timeout = 600;
+    try {
+        if (opts.url && !is_valid_url(opts.url))
+            throw new Error(`Invalid --url "${opts.url}".`);
+        timeout = parse_timeout(opts.timeout);
+    } catch(e) {
+        fail((e as Error).message);
+        return;
+    }
+    const approve = !opts.reject;
+    const verb = approve ? 'Approving' : 'Rejecting';
+    const spinner = start_spinner(`${verb} self-healing...`);
+    let poll_result: Poll_result<Ai_progress_response>;
+    try {
+        poll_result = await resume_and_poll(
+            api_key, collector_id, approve, opts, timeout);
+        spinner.stop();
+    } catch(e) {
+        spinner.stop();
+        const msg = (e as Error).message;
+        const is_timeout = /Timeout after/i.test(msg);
+        const status = is_timeout ? 'poll_failed' : 'resume_failed';
+        const suffix = msg.includes(collector_id)
+            ? '' : ` (collector ${collector_id})`;
+        console.error(`Failed to ${approve ? 'approve' : 'reject'} `
+            +`self-healing for collector ${collector_id}: `
+            +`${msg}${suffix}`);
+        emit_heal_output(
+            build_heal_envelope({
+                collector_id,
+                status,
+                prompt: '',
+                url: opts.url,
+                error: clean_error_message(msg),
+            }),
+            null,
+            opts
+        );
+        print_heal_recovery_note(collector_id);
+        process.exit(1);
+        return;
+    }
+    const progress = poll_result.result;
+    // a resumed job can hit another approval gate (multi-step approval).
+    if (progress.status == AWAITING_STATUS)
+    {
+        const envelope = build_heal_envelope({
+            collector_id,
+            status: 'awaiting_approval',
+            prompt: '',
+            progress,
+            url: opts.url,
+        });
+        if (emit_heal_output(envelope, progress, opts))
+            return;
+        success(format_heal_summary(
+            collector_id, '', envelope.next_step, progress));
+        return;
+    }
+    if (!approve && progress.status == DONE_STATUS)
+    {
+        const envelope = build_heal_envelope({
+            collector_id,
+            status: 'rejected',
+            prompt: '',
+            progress,
+            url: opts.url,
+        });
+        if (emit_heal_output(envelope, progress, opts))
+            return;
+        success(`Heal rejected for ${collector_id}. Re-run `
+            +'`bdata scraper heal` with a sharper prompt to try again.');
+        return;
+    }
+    emit_heal_terminal(collector_id, '', opts, progress);
 };
 
 const parse_sync_timeout = (raw: string|undefined): number=>{
@@ -1359,4 +1442,5 @@ export {
     handle_heal_scraper,
     format_heal_summary,
     resume_and_poll,
+    handle_approve_scraper,
 };
