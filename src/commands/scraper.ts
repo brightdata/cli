@@ -254,15 +254,26 @@ const build_heal_envelope = (params: {
     progress?: Ai_progress_response;
     url?: string;
     error?: string;
-}): Heal_envelope=>({
-    collector_id: params.collector_id,
-    status: params.status,
-    completed_steps: params.progress?.completed_steps ?? [],
-    prompt: params.prompt,
-    view_url: `https://brightdata.com/cp/scrapers/${params.collector_id}`,
-    next_step: build_next_step(params.collector_id, params.url),
-    ...(params.error ? {error: params.error} : {}),
-});
+}): Heal_envelope=>{
+    const awaiting = params.status == 'awaiting_approval';
+    const next_step = awaiting
+        ? build_approve_next_step(params.collector_id, params.url)
+        : build_next_step(params.collector_id, params.url);
+    return {
+        collector_id: params.collector_id,
+        status: params.status,
+        completed_steps: params.progress?.completed_steps ?? [],
+        prompt: params.prompt,
+        view_url:
+            `https://brightdata.com/cp/scrapers/${params.collector_id}`,
+        next_step,
+        ...(awaiting && params.progress
+            ? {preview_result: params.progress.preview_result,
+                diff_summary: build_diff_summary(params.progress.diff)}
+            : {}),
+        ...(params.error ? {error: params.error} : {}),
+    };
+};
 
 const wants_machine_output = (
     opts: {json?: boolean; pretty?: boolean; output?: string}

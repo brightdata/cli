@@ -1342,6 +1342,43 @@ describe('commands/scraper', ()=>{
             expect(env.next_step)
                 .toBe('bdata scraper run c_xyz <url>');
         });
+
+        it('on awaiting_approval includes preview_result, diff_summary, '
+            +'and an approve next_step', ()=>{
+            const env = build_heal_envelope({
+                collector_id: 'c_xyz',
+                status: 'awaiting_approval',
+                prompt: 'fix it',
+                progress: {
+                    status: 'pending_answer',
+                    completed_steps: ['planner', 'code_fixer'],
+                    preview_result: [{title: 'A Light in the Attic'}],
+                    diff: {template_b: {steps: [{name: 'x'}, {name: 'y'}]}},
+                },
+                url: 'https://x.com/p/1',
+            });
+            expect(env.status).toBe('awaiting_approval');
+            expect(env.preview_result)
+                .toEqual([{title: 'A Light in the Attic'}]);
+            expect(env.diff_summary).toMatch(/2 step/);
+            expect(env.next_step)
+                .toBe('bdata scraper approve c_xyz '
+                    +'--url https://x.com/p/1');
+        });
+
+        it('on done keeps the run next_step and omits gate fields', ()=>{
+            const env = build_heal_envelope({
+                collector_id: 'c_xyz',
+                status: 'done',
+                prompt: 'fix it',
+                progress: {status: 'done', completed_steps: ['patch']},
+                url: 'https://x.com/p/1',
+            });
+            expect(env.next_step)
+                .toBe('bdata scraper run c_xyz https://x.com/p/1');
+            expect(env).not.toHaveProperty('preview_result');
+            expect(env).not.toHaveProperty('diff_summary');
+        });
     });
 
     describe('print_heal_recovery_note', ()=>{
