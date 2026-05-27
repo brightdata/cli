@@ -132,10 +132,6 @@ type Scraper_heal_opts = {
     autoApprove?: boolean;
 };
 
-type Refactor_resume_request = {
-    message: boolean;
-};
-
 type Scraper_approve_opts = {
     reject?: boolean;
     url?: string;
@@ -166,6 +162,5 @@ export type {
     Refactor_request,
     Heal_envelope,
     Scraper_heal_opts,
-    Refactor_resume_request,
     Scraper_approve_opts,
 };

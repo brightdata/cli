@@ -486,12 +486,12 @@ const format_heal_summary = (
     progress: Ai_progress_response
 ): string=>{
     const steps = progress.completed_steps?.length ?? 0;
-    return [
-        `Scraper healed: ${collector_id}`,
-        `  Prompt: ${prompt}`,
-        `  Completed steps: ${steps}`,
-        `  Next: re-run to verify the fix → ${next_step}`,
-    ].join('\n');
+    const lines = [`Scraper healed: ${collector_id}`];
+    if (prompt)
+        lines.push(`  Prompt: ${prompt}`);
+    lines.push(`  Completed steps: ${steps}`);
+    lines.push(`  Next: re-run to verify the fix → ${next_step}`);
+    return lines.join('\n');
 };
 
 // Resume a self-healing job parked at the approval gate, then poll the
@@ -742,11 +742,8 @@ const handle_approve_scraper = async(
         const msg = (e as Error).message;
         const is_timeout = /Timeout after/i.test(msg);
         const status = is_timeout ? 'poll_failed' : 'resume_failed';
-        const suffix = msg.includes(collector_id)
-            ? '' : ` (collector ${collector_id})`;
         console.error(`Failed to ${approve ? 'approve' : 'reject'} `
-            +`self-healing for collector ${collector_id}: `
-            +`${msg}${suffix}`);
+            +`self-healing for collector ${collector_id}: ${msg}`);
         emit_heal_output(
             build_heal_envelope({
                 collector_id,
