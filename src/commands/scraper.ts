@@ -117,6 +117,11 @@ const build_diff_summary = (diff: unknown): string=>{
     return `proposed template has ${steps} step(s) — review at view_url`;
 };
 
+const build_approve_next_step = (collector_id: string,
+    url: string|undefined): string=>
+    `bdata scraper approve ${collector_id}`
+    +(url ? ` --url ${url}` : '');
+
 const build_ai_trigger_retry = (
     opts: Pick<Scraper_create_opts, 'maxRetries'|'retry'>
 ): Retry_config=>{
@@ -1264,6 +1269,7 @@ export {
     build_refactor_request,
     build_next_step,
     build_diff_summary,
+    build_approve_next_step,
     build_heal_envelope,
     print_heal_recovery_note,
     handle_heal_scraper,

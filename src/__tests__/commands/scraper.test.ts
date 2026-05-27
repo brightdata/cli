@@ -80,6 +80,7 @@ import {
     build_refactor_request,
     build_next_step,
     build_diff_summary,
+    build_approve_next_step,
     build_heal_envelope,
     print_heal_recovery_note,
     handle_heal_scraper,
@@ -1279,6 +1280,19 @@ describe('commands/scraper', ()=>{
             expect(build_diff_summary(null)).toMatch(/see view_url/i);
             expect(build_diff_summary({nope: 1})).toMatch(/see view_url/i);
             expect(build_diff_summary('garbage')).toMatch(/see view_url/i);
+        });
+    });
+
+    describe('build_approve_next_step', ()=>{
+        it('builds an approve command with --url when url given', ()=>{
+            expect(build_approve_next_step('c_abc', 'https://x.com/p/1'))
+                .toBe('bdata scraper approve c_abc '
+                    +'--url https://x.com/p/1');
+        });
+
+        it('omits --url when no url is provided', ()=>{
+            expect(build_approve_next_step('c_abc', undefined))
+                .toBe('bdata scraper approve c_abc');
         });
     });
 
