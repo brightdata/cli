@@ -76,11 +76,6 @@ import {
     resolve_run_inputs,
     is_valid_url,
     validate_heal_prompt,
-    build_refactor_request,
-    build_next_step,
-    build_heal_envelope,
-    print_heal_recovery_note,
-    handle_heal_scraper,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -1187,6 +1182,28 @@ describe('commands/scraper', ()=>{
             expect(is_valid_url('not a url')).toBe(false);
             expect(is_valid_url('')).toBe(false);
             expect(is_valid_url('  ')).toBe(false);
+        });
+    });
+
+    describe('validate_heal_prompt', ()=>{
+        it('returns the trimmed prompt for valid input', ()=>{
+            expect(validate_heal_prompt('  fix the price selector  '))
+                .toBe('fix the price selector');
+        });
+
+        it('throws on empty / whitespace-only prompt', ()=>{
+            expect(()=>validate_heal_prompt('')).toThrow(/prompt/i);
+            expect(()=>validate_heal_prompt('   ')).toThrow(/prompt/i);
+        });
+
+        it('throws when prompt exceeds 1000 chars', ()=>{
+            expect(()=>validate_heal_prompt('x'.repeat(1001)))
+                .toThrow(/1000/);
+        });
+
+        it('accepts a prompt exactly at the 1000-char limit', ()=>{
+            const p = 'x'.repeat(1000);
+            expect(validate_heal_prompt(p)).toBe(p);
         });
     });
 

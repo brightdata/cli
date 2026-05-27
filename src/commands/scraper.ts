@@ -78,6 +78,17 @@ const parse_max_retries = (raw: string|undefined): number=>{
     return n;
 };
 
+const validate_heal_prompt = (raw: string): string=>{
+    const prompt = (raw ?? '').trim();
+    if (!prompt)
+        throw new Error('scraper heal requires a non-empty <prompt> '
+            +'describing what to fix.');
+    if (prompt.length>PROMPT_MAX_LEN)
+        throw new Error(`Heal prompt is ${prompt.length} chars; the API `
+            +`limit is ${PROMPT_MAX_LEN}. Shorten it.`);
+    return prompt;
+};
+
 const build_ai_trigger_retry = (
     opts: Pick<Scraper_create_opts, 'maxRetries'|'retry'>
 ): Retry_config=>{
@@ -983,4 +994,5 @@ export {
     read_input_file,
     resolve_run_inputs,
     is_valid_url,
+    validate_heal_prompt,
 };
