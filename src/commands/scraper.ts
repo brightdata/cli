@@ -269,7 +269,7 @@ const build_heal_envelope = (params: {
         next_step,
         ...(awaiting && params.progress
             ? {preview_result: params.progress.preview_result,
-                diff_summary: build_diff_summary(params.progress.diff)}
+                diff_summary: build_diff_summary(params.progress.diff),}
             : {}),
         ...(params.error ? {error: params.error} : {}),
     };
