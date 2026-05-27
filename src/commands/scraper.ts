@@ -95,6 +95,10 @@ const build_refactor_request = (prompt: string): Refactor_request=>({
     custom_input: [],
 });
 
+const build_next_step = (collector_id: string,
+    url: string|undefined): string=>
+    `bdata scraper run ${collector_id} ${url ?? '<url>'}`;
+
 const build_ai_trigger_retry = (
     opts: Pick<Scraper_create_opts, 'maxRetries'|'retry'>
 ): Retry_config=>{
@@ -1002,4 +1006,5 @@ export {
     is_valid_url,
     validate_heal_prompt,
     build_refactor_request,
+    build_next_step,
 };

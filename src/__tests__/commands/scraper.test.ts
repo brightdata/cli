@@ -77,6 +77,7 @@ import {
     is_valid_url,
     validate_heal_prompt,
     build_refactor_request,
+    build_next_step,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -1214,6 +1215,18 @@ describe('commands/scraper', ()=>{
                 prompt: 'fix selectors',
                 custom_input: [],
             });
+        });
+    });
+
+    describe('build_next_step', ()=>{
+        it('bakes in the real url when provided', ()=>{
+            expect(build_next_step('c_abc', 'https://x.com/p/1'))
+                .toBe('bdata scraper run c_abc https://x.com/p/1');
+        });
+
+        it('uses a <url> placeholder when no url is provided', ()=>{
+            expect(build_next_step('c_abc', undefined))
+                .toBe('bdata scraper run c_abc <url>');
         });
     });
 
