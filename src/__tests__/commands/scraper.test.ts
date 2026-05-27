@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
 import {Command} from 'commander';
-import type {Scraper_create_opts} from '../../types/scraper';
+import type {Scraper_create_opts, Scraper_heal_opts} from '../../types/scraper';
 
 const mocks = vi.hoisted(()=>({
     post: vi.fn(),
@@ -75,6 +75,12 @@ import {
     read_input_file,
     resolve_run_inputs,
     is_valid_url,
+    validate_heal_prompt,
+    build_refactor_request,
+    build_next_step,
+    build_heal_envelope,
+    print_heal_recovery_note,
+    handle_heal_scraper,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
