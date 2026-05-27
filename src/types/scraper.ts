@@ -34,6 +34,8 @@ type Ai_progress_response = {
     step?: string;
     completed_steps?: string[];
     status: string;
+    diff?: unknown;
+    preview_result?: unknown;
 };
 
 type Scraper_create_opts = {
@@ -111,6 +113,8 @@ type Heal_envelope = {
     prompt: string;
     view_url: string;
     next_step: string;
+    preview_result?: unknown;
+    diff_summary?: string;
     error?: string;
 };
 
@@ -125,6 +129,22 @@ type Scraper_heal_opts = {
     legacyOutput?: boolean;
     maxRetries?: string;
     retry?: boolean;
+};
+
+type Refactor_resume_request = {
+    message: boolean;
+};
+
+type Scraper_approve_opts = {
+    reject?: boolean;
+    url?: string;
+    timeout?: string;
+    output?: string;
+    json?: boolean;
+    pretty?: boolean;
+    timing?: boolean;
+    apiKey?: string;
+    legacyOutput?: boolean;
 };
 
 export type {
@@ -145,4 +165,6 @@ export type {
     Refactor_request,
     Heal_envelope,
     Scraper_heal_opts,
+    Refactor_resume_request,
+    Scraper_approve_opts,
 };
