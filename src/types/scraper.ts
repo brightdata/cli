@@ -99,6 +99,34 @@ type Batch_pending_response = {
     message?: string;
 };
 
+type Refactor_request = {
+    prompt: string;
+    custom_input: unknown[];
+};
+
+type Heal_envelope = {
+    collector_id: string;
+    status: string;
+    completed_steps: string[];
+    prompt: string;
+    view_url: string;
+    next_step: string;
+    error?: string;
+};
+
+type Scraper_heal_opts = {
+    url?: string;
+    timeout?: string;
+    output?: string;
+    json?: boolean;
+    pretty?: boolean;
+    timing?: boolean;
+    apiKey?: string;
+    legacyOutput?: boolean;
+    maxRetries?: string;
+    retry?: boolean;
+};
+
 export type {
     Deliver_webhook,
     Create_template_request,
@@ -114,4 +142,7 @@ export type {
     Scraper_run_opts,
     Batch_trigger_response,
     Batch_pending_response,
+    Refactor_request,
+    Heal_envelope,
+    Scraper_heal_opts,
 };
