@@ -50,6 +50,9 @@ const AI_PROGRESS_PATH = 'automate_template/progress';
 const RUNNING_SENTINEL = '__running__';
 const DONE_STATUS = 'done';
 const TERMINAL_FAIL_STATUSES = ['failed', 'error', 'cancelled'];
+const AWAITING_APPROVAL = '__awaiting_approval__';
+const AWAITING_STATUS = 'pending_answer';
+const RESUME_JOB_PATH = 'resume_automation_job';
 const TRIGGER_IMMEDIATE_ENDPOINT = '/dca/trigger_immediate';
 const GET_RESULT_ENDPOINT = '/dca/get_result';
 const SYNC_CRAWL_ENDPOINT = '/dca/crawl';
@@ -185,6 +188,9 @@ const extract_progress_status = (
     {
         return result.status;
     }
+    // the self-healing flow pauses here awaiting user approval; stop polling.
+    if (result.status == AWAITING_STATUS)
+        return AWAITING_APPROVAL;
     return RUNNING_SENTINEL;
 };
 

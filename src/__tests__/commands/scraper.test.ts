@@ -237,6 +237,11 @@ describe('commands/scraper', ()=>{
             expect(extract_progress_status(null as never)).toBeUndefined();
             expect(extract_progress_status({} as never)).toBeUndefined();
         });
+
+        it('returns the awaiting-approval sentinel for pending_answer', ()=>{
+            expect(extract_progress_status({status: 'pending_answer'}))
+                .toBe('__awaiting_approval__');
+        });
     });
 
     describe('format_create_summary', ()=>{
