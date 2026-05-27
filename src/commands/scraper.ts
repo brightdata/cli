@@ -140,6 +140,18 @@ const print_stub_recovery_note = (collector_id: string): void=>{
     ));
 };
 
+const print_heal_recovery_note = (collector_id: string): void=>{
+    if (!collector_id)
+        return;
+    console.error(dim(
+        `Note: the heal did not complete, but scraper ${collector_id} `
+        +'is unchanged and still works as it did before.\n'
+        +`Open https://brightdata.com/cp/scrapers/${collector_id} `
+        +'to inspect it, or re-run `bdata scraper heal` with a sharper '
+        +'prompt.'
+    ));
+};
+
 const build_template_request = (
     opts: Scraper_create_opts
 ): Create_template_request=>({
@@ -1026,4 +1038,5 @@ export {
     build_refactor_request,
     build_next_step,
     build_heal_envelope,
+    print_heal_recovery_note,
 };

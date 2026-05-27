@@ -79,6 +79,7 @@ import {
     build_refactor_request,
     build_next_step,
     build_heal_envelope,
+    print_heal_recovery_note,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -1277,6 +1278,31 @@ describe('commands/scraper', ()=>{
                 .toBe('https://brightdata.com/cp/scrapers/c_xyz');
             expect(env.next_step)
                 .toBe('bdata scraper run c_xyz <url>');
+        });
+    });
+
+    describe('print_heal_recovery_note', ()=>{
+        it('reassures that the scraper is unchanged and points to the UI',
+            ()=>{
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            print_heal_recovery_note('c_xyz');
+            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(msg).toContain('c_xyz');
+            expect(msg).toMatch(
+                /https:\/\/brightdata\.com\/cp\/scrapers\/c_xyz/);
+            expect(msg).toMatch(/unchanged|still works|was not modified/i);
+            // Must NOT reuse create's destructive "half-built" wording.
+            expect(msg).not.toMatch(/half-built/);
+            error.mockRestore();
+        });
+
+        it('does nothing when collector_id is empty', ()=>{
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            print_heal_recovery_note('');
+            expect(error).not.toHaveBeenCalled();
+            error.mockRestore();
         });
     });
 
