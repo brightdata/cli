@@ -81,7 +81,7 @@ const parse_max_retries = (raw: string|undefined): number=>{
 };
 
 const validate_heal_prompt = (raw: string): string=>{
-    const prompt = (raw ?? '').trim();
+    const prompt = raw.trim();
     if (!prompt)
         throw new Error('scraper heal requires a non-empty <prompt> '
             +'describing what to fix.');

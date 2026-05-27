@@ -1238,8 +1238,7 @@ describe('commands/scraper', ()=>{
                 collector_id: 'c_xyz',
                 status: 'done',
                 prompt: 'fix price',
-                progress: {status: 'done',
-                    completed_steps: ['plan', 'patch']},
+                progress: {status: 'done', completed_steps: ['plan', 'patch']},
                 url: 'https://x.com/p/1',
             });
             expect(env).toEqual({
