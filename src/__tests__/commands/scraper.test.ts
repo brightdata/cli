@@ -78,6 +78,7 @@ import {
     validate_heal_prompt,
     build_refactor_request,
     build_next_step,
+    build_heal_envelope,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -1227,6 +1228,55 @@ describe('commands/scraper', ()=>{
         it('uses a <url> placeholder when no url is provided', ()=>{
             expect(build_next_step('c_abc', undefined))
                 .toBe('bdata scraper run c_abc <url>');
+        });
+    });
+
+    describe('build_heal_envelope', ()=>{
+        it('returns the documented success shape', ()=>{
+            const env = build_heal_envelope({
+                collector_id: 'c_xyz',
+                status: 'done',
+                prompt: 'fix price',
+                progress: {status: 'done',
+                    completed_steps: ['plan', 'patch']},
+                url: 'https://x.com/p/1',
+            });
+            expect(env).toEqual({
+                collector_id: 'c_xyz',
+                status: 'done',
+                completed_steps: ['plan', 'patch'],
+                prompt: 'fix price',
+                view_url: 'https://brightdata.com/cp/scrapers/c_xyz',
+                next_step: 'bdata scraper run c_xyz https://x.com/p/1',
+            });
+        });
+
+        it('uses a <url> placeholder in next_step when no url given', ()=>{
+            const env = build_heal_envelope({
+                collector_id: 'c_xyz',
+                status: 'done',
+                prompt: 'fix price',
+                progress: {status: 'done', completed_steps: []},
+            });
+            expect(env.next_step)
+                .toBe('bdata scraper run c_xyz <url>');
+        });
+
+        it('records error + empty steps on failure, keeps view_url '
+            +'and next_step', ()=>{
+            const env = build_heal_envelope({
+                collector_id: 'c_xyz',
+                status: 'heal_trigger_failed',
+                prompt: 'fix price',
+                error: 'Cannot run more than 3 jobs in parallel',
+            });
+            expect(env.status).toBe('heal_trigger_failed');
+            expect(env.error).toMatch(/parallel/);
+            expect(env.completed_steps).toEqual([]);
+            expect(env.view_url)
+                .toBe('https://brightdata.com/cp/scrapers/c_xyz');
+            expect(env.next_step)
+                .toBe('bdata scraper run c_xyz <url>');
         });
     });
 

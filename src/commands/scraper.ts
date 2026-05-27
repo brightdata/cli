@@ -17,6 +17,7 @@ import type {
     Ai_progress_response,
     Scraper_create_opts,
     Create_envelope,
+    Heal_envelope,
     Run_request,
     Trigger_immediate_response,
     Scraper_run_opts,
@@ -206,6 +207,23 @@ const build_create_envelope = (params: {
     completed_steps: params.progress?.completed_steps ?? [],
     view_url: `https://brightdata.com/cp/scrapers/${params.collector_id}`,
     ...(params.created_at ? {created_at: params.created_at} : {}),
+    ...(params.error ? {error: params.error} : {}),
+});
+
+const build_heal_envelope = (params: {
+    collector_id: string;
+    status: string;
+    prompt: string;
+    progress?: Ai_progress_response;
+    url?: string;
+    error?: string;
+}): Heal_envelope=>({
+    collector_id: params.collector_id,
+    status: params.status,
+    completed_steps: params.progress?.completed_steps ?? [],
+    prompt: params.prompt,
+    view_url: `https://brightdata.com/cp/scrapers/${params.collector_id}`,
+    next_step: build_next_step(params.collector_id, params.url),
     ...(params.error ? {error: params.error} : {}),
 });
 
@@ -1007,4 +1025,5 @@ export {
     validate_heal_prompt,
     build_refactor_request,
     build_next_step,
+    build_heal_envelope,
 };
