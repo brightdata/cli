@@ -22,6 +22,7 @@ import type {
     Trigger_immediate_response,
     Scraper_run_opts,
     Batch_trigger_response,
+    Scraper_heal_opts,
 } from '../types/scraper';
 
 // Scraper-studio body-pattern hints. Kept here, not in client.ts, so
@@ -239,7 +240,9 @@ const build_heal_envelope = (params: {
     ...(params.error ? {error: params.error} : {}),
 });
 
-const wants_machine_output = (opts: Scraper_create_opts): boolean=>
+const wants_machine_output = (
+    opts: {json?: boolean; pretty?: boolean; output?: string}
+): boolean=>
     !!(opts.json || opts.pretty || opts.output) || !is_tty;
 
 const emit_create_output = (
@@ -419,6 +422,160 @@ const handle_create_scraper = async(
             opts
         );
         print_stub_recovery_note(collector_id);
+        process.exit(1);
+        return;
+    }
+};
+
+const emit_heal_output = (
+    envelope: Heal_envelope,
+    progress: Ai_progress_response|null,
+    opts: Scraper_heal_opts
+): boolean=>{
+    if (!wants_machine_output(opts))
+        return false;
+    const print_opts = {json: opts.json, pretty: opts.pretty,
+        output: opts.output};
+    const payload = opts.legacyOutput && progress
+        ? (progress as unknown) : envelope;
+    print(payload, print_opts);
+    return true;
+};
+
+const format_heal_summary = (
+    collector_id: string,
+    prompt: string,
+    next_step: string,
+    progress: Ai_progress_response
+): string=>{
+    const steps = progress.completed_steps?.length ?? 0;
+    return [
+        `Scraper healed: ${collector_id}`,
+        `  Prompt: ${prompt}`,
+        `  Completed steps: ${steps}`,
+        `  Next: re-run to verify the fix → ${next_step}`,
+    ].join('\n');
+};
+
+const handle_heal_scraper = async(
+    collector_id: string,
+    raw_prompt: string,
+    opts: Scraper_heal_opts
+)=>{
+    const api_key = ensure_authenticated(opts.apiKey);
+    let prompt = '';
+    let timeout = 600;
+    let ai_retry: Retry_config;
+    try {
+        prompt = validate_heal_prompt(raw_prompt);
+        if (opts.url && !is_valid_url(opts.url))
+            throw new Error(`Invalid --url "${opts.url}".`);
+        timeout = parse_timeout(opts.timeout);
+        ai_retry = build_ai_trigger_retry(opts);
+    } catch(e) {
+        fail((e as Error).message);
+        return;
+    }
+    const trigger_spinner = start_spinner('Triggering self-healing...');
+    try {
+        await post<Trigger_ai_response>(
+            api_key,
+            `/dca/collectors/${collector_id}/${REFACTOR_TRIGGER_PATH}`,
+            build_refactor_request(prompt),
+            {timing: opts.timing, hints: SCRAPER_BODY_HINTS,
+                retry: ai_retry}
+        );
+        trigger_spinner.stop();
+    } catch(e) {
+        trigger_spinner.stop();
+        const msg = (e as Error).message;
+        console.error(`Failed to start self-healing for collector `
+            +`${collector_id}: ${msg}`);
+        emit_heal_output(
+            build_heal_envelope({
+                collector_id,
+                status: 'heal_trigger_failed',
+                prompt,
+                url: opts.url,
+                error: clean_error_message(msg),
+            }),
+            null,
+            opts
+        );
+        print_heal_recovery_note(collector_id);
+        process.exit(1);
+        return;
+    }
+    const poll_spinner = start_spinner('Healing scraper...');
+    try {
+        const poll_result = await poll_until<Ai_progress_response>({
+            timeout_seconds: timeout,
+            fetch_once: ()=>get<Ai_progress_response>(
+                api_key,
+                `/dca/collectors/${collector_id}/${REFACTOR_PROGRESS_PATH}`,
+                {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
+            ),
+            get_status: extract_progress_status,
+            running_statuses: [RUNNING_SENTINEL],
+            timeout_label: `self-healing (collector ${collector_id})`,
+            on_running: ({attempt, timeout_seconds, result})=>{
+                const step = result.step ?? 'pending';
+                console.error(dim(`Step: ${step} — polling `
+                    +`(attempt ${attempt}/${timeout_seconds})`));
+            },
+        });
+        poll_spinner.stop();
+        const progress = poll_result.result;
+        if (progress.status != DONE_STATUS)
+        {
+            console.error(`Self-healing failed (collector ${collector_id}, `
+                +`status: ${progress.status}).`);
+            emit_heal_output(
+                build_heal_envelope({
+                    collector_id,
+                    status: progress.status,
+                    prompt,
+                    progress,
+                    url: opts.url,
+                    error: `Self-healing finished with status `
+                        +`"${progress.status}".`,
+                }),
+                progress,
+                opts
+            );
+            print_heal_recovery_note(collector_id);
+            process.exit(1);
+            return;
+        }
+        const envelope = build_heal_envelope({
+            collector_id,
+            status: progress.status,
+            prompt,
+            progress,
+            url: opts.url,
+        });
+        if (emit_heal_output(envelope, progress, opts))
+            return;
+        success(format_heal_summary(
+            collector_id, prompt, envelope.next_step, progress));
+    } catch(e) {
+        poll_spinner.stop();
+        const msg = (e as Error).message;
+        const suffix = msg.includes(collector_id)
+            ? '' : ` (collector ${collector_id})`;
+        console.error(`${msg}${suffix}`);
+        emit_heal_output(
+            build_heal_envelope({
+                collector_id,
+                status: 'poll_failed',
+                prompt,
+                url: opts.url,
+                error: clean_error_message(msg),
+            }),
+            null,
+            opts
+        );
+        print_heal_recovery_note(collector_id);
         process.exit(1);
         return;
     }
@@ -1039,4 +1196,5 @@ export {
     build_next_step,
     build_heal_envelope,
     print_heal_recovery_note,
+    handle_heal_scraper,
 };
