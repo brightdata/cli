@@ -645,8 +645,31 @@ const handle_heal_scraper = async(
         const progress = poll_result.result;
         if (progress.status == AWAITING_STATUS && opts.autoApprove)
         {
-            const resumed = await resume_and_poll(
-                api_key, collector_id, true, opts, timeout);
+            let resumed: Poll_result<Ai_progress_response>;
+            try {
+                resumed = await resume_and_poll(
+                    api_key, collector_id, true, opts, timeout);
+            } catch(e) {
+                const msg = (e as Error).message;
+                const status = /Timeout after/i.test(msg)
+                    ? 'poll_failed' : 'resume_failed';
+                console.error(`Failed to auto-approve self-healing for `
+                    +`collector ${collector_id}: ${msg}`);
+                emit_heal_output(
+                    build_heal_envelope({
+                        collector_id,
+                        status,
+                        prompt,
+                        url: opts.url,
+                        error: clean_error_message(msg),
+                    }),
+                    null,
+                    opts
+                );
+                print_heal_recovery_note(collector_id);
+                process.exit(1);
+                return;
+            }
             emit_heal_terminal(
                 collector_id, prompt, opts, resumed.result);
             return;

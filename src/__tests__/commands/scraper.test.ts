@@ -1805,6 +1805,34 @@ describe('commands/scraper', ()=>{
                 }),
                 expect.objectContaining({output: 'heal.json'})
             );
+            expect(mocks.poll_until).toHaveBeenCalledTimes(2);
+        });
+
+        it('--auto-approve labels a resume POST failure as resume_failed '
+            +'(not poll_failed)', async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'rh_xyz'})            // trigger
+                .mockRejectedValueOnce(                            // resume
+                    new Error('{"error":"job not awaiting approval"}'));
+            mocks.poll_until.mockResolvedValueOnce({
+                result: {status: 'pending_answer',
+                    completed_steps: ['code_fixer'],
+                    preview_result: [{title: 't'}], diff: {}},
+                attempts: 3,
+            });
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_heal_scraper('c_abc', 'fix it',
+                {autoApprove: true, output: 'heal.json'});
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({status: 'resume_failed'}),
+                expect.objectContaining({output: 'heal.json'})
+            );
+            expect(exit).toHaveBeenCalledWith(1);
+            exit.mockRestore();
+            error.mockRestore();
         });
     });
 
