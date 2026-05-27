@@ -1740,6 +1740,70 @@ describe('commands/scraper', ()=>{
             expect(written).not.toHaveProperty('next_step');
             expect(written.status).toBe('done');
         });
+
+        it('stops at the approval gate with awaiting_approval (exit 0, '
+            +'no resume call)', async()=>{
+            mocks.post.mockResolvedValueOnce({id: 'rh_xyz'});
+            mocks.poll_until.mockResolvedValue({
+                result: {
+                    status: 'pending_answer',
+                    completed_steps: ['planner', 'code_fixer'],
+                    preview_result: [{title: 'A Light in the Attic'}],
+                    diff: {template_b: {steps: [{name: 'x'}]}},
+                },
+                attempts: 5,
+            });
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            await handle_heal_scraper('c_abc', 'fix it',
+                {url: 'https://x.com/p/1', output: 'heal.json'});
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    collector_id: 'c_abc',
+                    status: 'awaiting_approval',
+                    preview_result: [{title: 'A Light in the Attic'}],
+                    next_step:
+                        'bdata scraper approve c_abc --url https://x.com/p/1',
+                }),
+                expect.objectContaining({output: 'heal.json'})
+            );
+            expect(mocks.post).toHaveBeenCalledTimes(1);
+            expect(exit).not.toHaveBeenCalledWith(1);
+            exit.mockRestore();
+        });
+
+        it('--auto-approve resumes at the gate and polls to done', async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'rh_xyz'})
+                .mockResolvedValueOnce({ok: true});
+            mocks.poll_until
+                .mockResolvedValueOnce({
+                    result: {status: 'pending_answer',
+                        completed_steps: ['code_fixer'],
+                        preview_result: [{title: 't'}], diff: {}},
+                    attempts: 3,
+                })
+                .mockResolvedValueOnce({
+                    result: {status: 'done', completed_steps: ['patch']},
+                    attempts: 2,
+                });
+            await handle_heal_scraper('c_abc', 'fix it',
+                {url: 'https://x.com/p/1', autoApprove: true,
+                    output: 'heal.json'});
+            expect(mocks.post).toHaveBeenNthCalledWith(
+                2, 'api_key',
+                '/dca/collectors/c_abc/resume_automation_job',
+                {message: true},
+                expect.objectContaining({hints: SCRAPER_BODY_HINTS})
+            );
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    status: 'done',
+                    next_step: 'bdata scraper run c_abc https://x.com/p/1',
+                }),
+                expect.objectContaining({output: 'heal.json'})
+            );
+        });
     });
 
     describe('resume_and_poll', ()=>{

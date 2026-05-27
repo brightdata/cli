@@ -129,6 +129,7 @@ type Scraper_heal_opts = {
     legacyOutput?: boolean;
     maxRetries?: string;
     retry?: boolean;
+    autoApprove?: boolean;
 };
 
 type Refactor_resume_request = {

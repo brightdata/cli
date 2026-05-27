@@ -465,7 +465,8 @@ const handle_create_scraper = async(
 const emit_heal_output = (
     envelope: Heal_envelope,
     progress: Ai_progress_response|null,
-    opts: Scraper_heal_opts
+    opts: {url?: string; json?: boolean; pretty?: boolean;
+        output?: string; legacyOutput?: boolean; timing?: boolean}
 ): boolean=>{
     if (!wants_machine_output(opts))
         return false;
@@ -524,6 +525,50 @@ const resume_and_poll = async(
                 +`(attempt ${attempt}/${timeout_seconds})`));
         },
     });
+};
+
+// Emit the terminal heal result: done → success envelope + run next_step;
+// any other (genuine-failure) status → failure envelope + recovery note +
+// exit 1. Shared by the default poll path and the --auto-approve path.
+const emit_heal_terminal = (
+    collector_id: string,
+    prompt: string,
+    opts: {url?: string; json?: boolean; pretty?: boolean;
+        output?: string; legacyOutput?: boolean; timing?: boolean},
+    progress: Ai_progress_response
+): void=>{
+    if (progress.status != DONE_STATUS)
+    {
+        console.error(`Self-healing failed (collector ${collector_id}, `
+            +`status: ${progress.status}).`);
+        emit_heal_output(
+            build_heal_envelope({
+                collector_id,
+                status: progress.status,
+                prompt,
+                progress,
+                url: opts.url,
+                error: `Self-healing finished with status `
+                    +`"${progress.status}".`,
+            }),
+            progress,
+            opts
+        );
+        print_heal_recovery_note(collector_id);
+        process.exit(1);
+        return;
+    }
+    const envelope = build_heal_envelope({
+        collector_id,
+        status: progress.status,
+        prompt,
+        progress,
+        url: opts.url,
+    });
+    if (emit_heal_output(envelope, progress, opts))
+        return;
+    success(format_heal_summary(
+        collector_id, prompt, envelope.next_step, progress));
 };
 
 const handle_heal_scraper = async(
@@ -597,38 +642,32 @@ const handle_heal_scraper = async(
         console.error(dim(
             `Done in ${poll_result.attempts} poll attempts.`));
         const progress = poll_result.result;
-        if (progress.status != DONE_STATUS)
+        if (progress.status == AWAITING_STATUS && opts.autoApprove)
         {
-            console.error(`Self-healing failed (collector ${collector_id}, `
-                +`status: ${progress.status}).`);
-            emit_heal_output(
-                build_heal_envelope({
-                    collector_id,
-                    status: progress.status,
-                    prompt,
-                    progress,
-                    url: opts.url,
-                    error: `Self-healing finished with status `
-                        +`"${progress.status}".`,
-                }),
-                progress,
-                opts
-            );
-            print_heal_recovery_note(collector_id);
-            process.exit(1);
+            const resumed = await resume_and_poll(
+                api_key, collector_id, true, opts, timeout);
+            emit_heal_terminal(
+                collector_id, prompt, opts, resumed.result);
             return;
         }
-        const envelope = build_heal_envelope({
-            collector_id,
-            status: progress.status,
-            prompt,
-            progress,
-            url: opts.url,
-        });
-        if (emit_heal_output(envelope, progress, opts))
+        if (progress.status == AWAITING_STATUS)
+        {
+            console.error(dim(`Heal ready — awaiting approval `
+                +`(collector ${collector_id}).`));
+            const envelope = build_heal_envelope({
+                collector_id,
+                status: 'awaiting_approval',
+                prompt,
+                progress,
+                url: opts.url,
+            });
+            if (emit_heal_output(envelope, progress, opts))
+                return;
+            success(format_heal_summary(
+                collector_id, prompt, envelope.next_step, progress));
             return;
-        success(format_heal_summary(
-            collector_id, prompt, envelope.next_step, progress));
+        }
+        emit_heal_terminal(collector_id, prompt, opts, progress);
     } catch(e) {
         poll_spinner.stop();
         const msg = (e as Error).message;
