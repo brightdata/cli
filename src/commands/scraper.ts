@@ -86,7 +86,7 @@ const validate_heal_prompt = (raw: string): string=>{
     if (!prompt)
         throw new Error('scraper heal requires a non-empty <prompt> '
             +'describing what to fix.');
-    if (prompt.length>PROMPT_MAX_LEN)
+    if (prompt.length > PROMPT_MAX_LEN)
         throw new Error(`Heal prompt is ${prompt.length} chars; the API `
             +`limit is ${PROMPT_MAX_LEN}. Shorten it.`);
     return prompt;

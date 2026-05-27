@@ -1491,10 +1491,13 @@ describe('commands/scraper', ()=>{
         it('chains trigger → poll and prints the envelope in non-TTY',
             async()=>{
             mocks.post.mockResolvedValueOnce({id: 'rh_xyz', queued: false});
-            mocks.poll_until.mockResolvedValue({
-                result: {status: 'done',
-                    completed_steps: ['plan', 'patch']},
-                attempts: 3,
+            mocks.get.mockResolvedValue({status: 'done',
+                completed_steps: ['plan', 'patch']});
+            mocks.poll_until.mockImplementation(async(o: never)=>{
+                const cfg = o as {fetch_once: ()=>Promise<unknown>};
+                await cfg.fetch_once();
+                return {result: {status: 'done',
+                    completed_steps: ['plan', 'patch']}, attempts: 3};
             });
             await handle_heal_scraper('c_abc', 'fix the price selector',
                 {url: 'https://x.com/p/1'});
@@ -1510,6 +1513,11 @@ describe('commands/scraper', ()=>{
                     running_statuses: ['__running__'],
                     timeout_label: expect.stringContaining('c_abc'),
                 })
+            );
+            expect(mocks.get).toHaveBeenCalledWith(
+                'api_key',
+                '/dca/collectors/c_abc/refactor_template/progress',
+                expect.objectContaining({hints: SCRAPER_BODY_HINTS})
             );
             expect(mocks.print).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -1552,6 +1560,8 @@ describe('commands/scraper', ()=>{
                 handle_heal_scraper('c_abc', 'x'.repeat(1001), {}))
                 .rejects.toThrow(/1000/);
             expect(mocks.post).not.toHaveBeenCalled();
+            expect(mocks.fail).toHaveBeenCalledWith(
+                expect.stringMatching(/1000/));
         });
 
         it('fails fast on an invalid --url (no network call)', async()=>{
@@ -1560,6 +1570,8 @@ describe('commands/scraper', ()=>{
                     {url: 'not-a-url'}))
                 .rejects.toThrow(/url/i);
             expect(mocks.post).not.toHaveBeenCalled();
+            expect(mocks.fail).toHaveBeenCalledWith(
+                expect.stringMatching(/url/i));
         });
 
         it('emits the failure envelope + recovery note when trigger '
@@ -1582,6 +1594,7 @@ describe('commands/scraper', ()=>{
             );
             const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
             expect(msg).toMatch(/unchanged|still works/i);
+            expect(exit).toHaveBeenCalledWith(1);
             exit.mockRestore();
             error.mockRestore();
         });
@@ -1608,6 +1621,7 @@ describe('commands/scraper', ()=>{
                 }),
                 expect.objectContaining({output: 'heal.json'})
             );
+            expect(exit).toHaveBeenCalledWith(1);
             exit.mockRestore();
             error.mockRestore();
         });
@@ -1631,6 +1645,7 @@ describe('commands/scraper', ()=>{
                 }),
                 expect.objectContaining({output: 'heal.json'})
             );
+            expect(exit).toHaveBeenCalledWith(1);
             exit.mockRestore();
             error.mockRestore();
         });
