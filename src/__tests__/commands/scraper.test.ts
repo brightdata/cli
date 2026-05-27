@@ -50,6 +50,7 @@ vi.mock('../../utils/config', ()=>({
 }));
 
 import {
+    scraper_command,
     build_template_request,
     build_ai_request,
     extract_progress_status,
@@ -1759,6 +1760,26 @@ describe('commands/scraper', ()=>{
                 /\/dca\/trigger_immediate\?collector=c_abc/);
             expect(mocks.post.mock.calls[0][2]).toEqual(
                 {url: 'https://only.com'});
+        });
+    });
+
+    describe('heal_subcommand wiring', ()=>{
+        it('is registered on scraper_command with required args', ()=>{
+            const heal = scraper_command.commands
+                .find(c=>c.name()=='heal');
+            expect(heal).toBeDefined();
+            expect(heal!.usage()).toMatch(/<collector_id>/);
+            expect(heal!.usage()).toMatch(/<prompt>/);
+        });
+
+        it('exposes --url, --timeout, --max-retries, --no-retry', ()=>{
+            const heal = scraper_command.commands
+                .find(c=>c.name()=='heal')!;
+            const flags = heal.options.map(o=>o.long);
+            expect(flags).toContain('--url');
+            expect(flags).toContain('--timeout');
+            expect(flags).toContain('--max-retries');
+            expect(flags).toContain('--no-retry');
         });
     });
 });

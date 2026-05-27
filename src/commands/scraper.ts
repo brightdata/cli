@@ -1160,10 +1160,58 @@ add_examples(run_subcommand, [
     },
 ]);
 
+const heal_subcommand = new Command('heal')
+    .description(
+        'Fix an existing scraper in place via AI self-healing')
+    .argument('<collector_id>',
+        'Collector ID of the scraper to fix (from `scraper create`)')
+    .argument('<prompt>',
+        'What is broken / what to fix (max 1000 chars)')
+    .option('--url <url>',
+        'Verify target woven into the next-step hint. Not sent to the '
+        +'heal call; heal only mutates the scraper.')
+    .option('--timeout <seconds>',
+        'Polling timeout in seconds (default: 600)')
+    .option('--max-retries <n>',
+        'Max retries on the AI-Flow concurrent-job cap 429 '
+        +`(default: ${AI_TRIGGER_DEFAULT_RETRIES}). Each wait grows `
+        +'exponentially with jitter, up to ~4 min between attempts.')
+    .option('--no-retry',
+        'Fail immediately on 429 instead of waiting through the cap. '
+        +'Equivalent to --max-retries 0.')
+    .option('-o, --output <path>', 'Write output to file')
+    .option('--json', 'Force JSON output')
+    .option('--pretty', 'Pretty-print JSON output')
+    .option('--legacy-output',
+        'Emit the bare AI-progress payload instead of the '
+        +'{collector_id, status, prompt, next_step, ...} envelope.')
+    .option('--timing', 'Show request timing')
+    .option('-k, --api-key <key>', 'Override API key')
+    .action(handle_heal_scraper);
+
+add_examples(heal_subcommand, [
+    {
+        description: 'Fix a scraper whose price selector drifted, then '
+            +'get a ready-to-run verify command back',
+        command: 'brightdata scraper heal c_mp3tuab31lswoxvpws '
+            +'"The price field returns null — the selector moved into a '
+            +'span with data-testid. Capture price and currency again." '
+            +'--url https://example.com/product/1',
+    },
+    {
+        description: 'Heal and save the result envelope (next_step tells '
+            +'you how to verify)',
+        command: 'brightdata scraper heal c_mp3tuab31lswoxvpws '
+            +'"Reviews stopped extracting after the page redesign" '
+            +'--pretty -o heal.json',
+    },
+]);
+
 const scraper_command = new Command('scraper')
     .description('Build and manage Bright Data scrapers')
     .addCommand(create_subcommand)
-    .addCommand(run_subcommand);
+    .addCommand(run_subcommand)
+    .addCommand(heal_subcommand);
 
 export {
     scraper_command,
