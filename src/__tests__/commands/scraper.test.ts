@@ -79,6 +79,7 @@ import {
     validate_heal_prompt,
     build_refactor_request,
     build_next_step,
+    build_diff_summary,
     build_heal_envelope,
     print_heal_recovery_note,
     handle_heal_scraper,
@@ -1260,6 +1261,24 @@ describe('commands/scraper', ()=>{
         it('uses a <url> placeholder when no url is provided', ()=>{
             expect(build_next_step('c_abc', undefined))
                 .toBe('bdata scraper run c_abc <url>');
+        });
+    });
+
+    describe('build_diff_summary', ()=>{
+        it('summarizes a well-formed template diff by step count', ()=>{
+            const diff = {
+                template_a: {steps: [{name: 'a'}, {name: 'b'}]},
+                template_b: {steps: [{name: 'a'}, {name: 'b'}, {name: 'c'}]},
+            };
+            const out = build_diff_summary(diff);
+            expect(out).toMatch(/step/i);
+            expect(out).toContain('3');
+        });
+
+        it('falls back to a generic note for a malformed diff', ()=>{
+            expect(build_diff_summary(null)).toMatch(/see view_url/i);
+            expect(build_diff_summary({nope: 1})).toMatch(/see view_url/i);
+            expect(build_diff_summary('garbage')).toMatch(/see view_url/i);
         });
     });
 

@@ -104,6 +104,19 @@ const build_next_step = (collector_id: string,
     url: string|undefined): string=>
     `bdata scraper run ${collector_id} ${url ?? '<url>'}`;
 
+// Compact, defensive summary of the refactor diff for the awaiting-approval
+// envelope. The full diff (both templates) stays in the web UI at view_url.
+const build_diff_summary = (diff: unknown): string=>{
+    const generic = 'code change pending approval — see view_url';
+    if (!diff || typeof diff != 'object')
+        return generic;
+    const b = (diff as {template_b?: {steps?: unknown}}).template_b;
+    const steps = b && Array.isArray(b.steps) ? b.steps.length : undefined;
+    if (steps == undefined)
+        return generic;
+    return `proposed template has ${steps} step(s) — review at view_url`;
+};
+
 const build_ai_trigger_retry = (
     opts: Pick<Scraper_create_opts, 'maxRetries'|'retry'>
 ): Retry_config=>{
@@ -1250,6 +1263,7 @@ export {
     validate_heal_prompt,
     build_refactor_request,
     build_next_step,
+    build_diff_summary,
     build_heal_envelope,
     print_heal_recovery_note,
     handle_heal_scraper,
