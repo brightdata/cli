@@ -2115,4 +2115,32 @@ describe('commands/scraper', ()=>{
             expect(flags).toContain('--no-retry');
         });
     });
+
+    describe('approve_subcommand wiring', ()=>{
+        it('is registered on scraper_command with a required '
+            +'collector_id', ()=>{
+            const approve = scraper_command.commands
+                .find(c=>c.name()=='approve');
+            expect(approve).toBeDefined();
+            expect(approve!.usage()).toMatch(/<collector_id>/);
+        });
+
+        it('exposes --reject, --url, --timeout but NOT retry flags', ()=>{
+            const approve = scraper_command.commands
+                .find(c=>c.name()=='approve')!;
+            const flags = approve.options.map(o=>o.long);
+            expect(flags).toContain('--reject');
+            expect(flags).toContain('--url');
+            expect(flags).toContain('--timeout');
+            expect(flags).not.toContain('--max-retries');
+            expect(flags).not.toContain('--no-retry');
+        });
+
+        it('heal exposes --auto-approve', ()=>{
+            const heal = scraper_command.commands
+                .find(c=>c.name()=='heal')!;
+            expect(heal.options.map(o=>o.long))
+                .toContain('--auto-approve');
+        });
+    });
 });

@@ -1384,6 +1384,9 @@ const heal_subcommand = new Command('heal')
     .option('--url <url>',
         'Verify target woven into the next-step hint. Not sent to the '
         +'heal call; heal only mutates the scraper.')
+    .option('--auto-approve',
+        'When the heal hits the approval gate, approve it automatically '
+        +'and poll through to done (default: stop and let you review).')
     .option('--timeout <seconds>',
         'Polling timeout in seconds (default: 600)')
     .option('--max-retries <n>',
@@ -1421,11 +1424,46 @@ add_examples(heal_subcommand, [
     },
 ]);
 
+const approve_subcommand = new Command('approve')
+    .description(
+        'Approve (or --reject) a heal that is awaiting approval')
+    .argument('<collector_id>',
+        'Collector ID of the scraper whose heal is awaiting approval')
+    .option('--reject',
+        'Reject the proposed fix instead of approving it.')
+    .option('--url <url>',
+        'Verify target woven into the next-step hint on success.')
+    .option('--timeout <seconds>',
+        'Polling timeout in seconds (default: 600)')
+    .option('-o, --output <path>', 'Write output to file')
+    .option('--json', 'Force JSON output')
+    .option('--pretty', 'Pretty-print JSON output')
+    .option('--legacy-output',
+        'Emit the bare AI-progress payload instead of the envelope.')
+    .option('--timing', 'Show request timing')
+    .option('-k, --api-key <key>', 'Override API key')
+    .action(handle_approve_scraper);
+
+add_examples(approve_subcommand, [
+    {
+        description: 'Approve a heal that stopped at awaiting_approval, '
+            +'then verify',
+        command: 'brightdata scraper approve c_mp3tuab31lswoxvpws '
+            +'--url https://example.com/product/1',
+    },
+    {
+        description: 'Reject a proposed fix and start over with a sharper '
+            +'heal prompt',
+        command: 'brightdata scraper approve c_mp3tuab31lswoxvpws --reject',
+    },
+]);
+
 const scraper_command = new Command('scraper')
     .description('Build and manage Bright Data scrapers')
     .addCommand(create_subcommand)
     .addCommand(run_subcommand)
-    .addCommand(heal_subcommand);
+    .addCommand(heal_subcommand)
+    .addCommand(approve_subcommand);
 
 export {
     scraper_command,
