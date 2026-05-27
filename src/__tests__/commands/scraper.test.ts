@@ -76,6 +76,7 @@ import {
     resolve_run_inputs,
     is_valid_url,
     validate_heal_prompt,
+    build_refactor_request,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -1204,6 +1205,15 @@ describe('commands/scraper', ()=>{
         it('accepts a prompt exactly at the 1000-char limit', ()=>{
             const p = 'x'.repeat(1000);
             expect(validate_heal_prompt(p)).toBe(p);
+        });
+    });
+
+    describe('build_refactor_request', ()=>{
+        it('wraps the prompt with an empty custom_input array', ()=>{
+            expect(build_refactor_request('fix selectors')).toEqual({
+                prompt: 'fix selectors',
+                custom_input: [],
+            });
         });
     });
 

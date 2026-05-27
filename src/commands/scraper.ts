@@ -11,6 +11,7 @@ import {print, success, fail, dim, is_tty} from '../utils/output';
 import type {
     Create_template_request,
     Create_template_response,
+    Refactor_request,
     Trigger_ai_request,
     Trigger_ai_response,
     Ai_progress_response,
@@ -88,6 +89,11 @@ const validate_heal_prompt = (raw: string): string=>{
             +`limit is ${PROMPT_MAX_LEN}. Shorten it.`);
     return prompt;
 };
+
+const build_refactor_request = (prompt: string): Refactor_request=>({
+    prompt,
+    custom_input: [],
+});
 
 const build_ai_trigger_retry = (
     opts: Pick<Scraper_create_opts, 'maxRetries'|'retry'>
@@ -995,4 +1001,5 @@ export {
     resolve_run_inputs,
     is_valid_url,
     validate_heal_prompt,
+    build_refactor_request,
 };
