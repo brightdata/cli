@@ -85,6 +85,7 @@ import {
     print_heal_recovery_note,
     handle_heal_scraper,
     format_heal_summary,
+    resume_and_poll,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -1738,6 +1739,43 @@ describe('commands/scraper', ()=>{
             expect(written.collector_id).toBeUndefined();
             expect(written).not.toHaveProperty('next_step');
             expect(written.status).toBe('done');
+        });
+    });
+
+    describe('resume_and_poll', ()=>{
+        it('posts resume_automation_job then polls progress, returns '
+            +'the poll result', async()=>{
+            mocks.post.mockResolvedValueOnce({ok: true});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: ['patch']},
+                attempts: 2,
+            });
+            const out = await resume_and_poll(
+                'api_key', 'c_abc', true, {timing: undefined}, 600);
+            expect(mocks.post).toHaveBeenCalledWith(
+                'api_key',
+                '/dca/collectors/c_abc/resume_automation_job',
+                {message: true},
+                expect.objectContaining({hints: SCRAPER_BODY_HINTS})
+            );
+            expect(mocks.poll_until).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    timeout_seconds: 600,
+                    running_statuses: ['__running__'],
+                })
+            );
+            expect(out.result.status).toBe('done');
+        });
+
+        it('sends message:false when approve=false (reject)', async()=>{
+            mocks.post.mockResolvedValueOnce({ok: true});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: []},
+                attempts: 1,
+            });
+            await resume_and_poll('api_key', 'c_abc', false,
+                {timing: undefined}, 600);
+            expect(mocks.post.mock.calls[0][2]).toEqual({message: false});
         });
     });
 

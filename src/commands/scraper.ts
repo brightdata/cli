@@ -6,7 +6,7 @@ import {post, get, type Body_hint, type Retry_config,
 import {load as load_config} from '../utils/config';
 import {ensure_authenticated} from '../utils/auth';
 import {start as start_spinner} from '../utils/spinner';
-import {parse_timeout, poll_until} from '../utils/polling';
+import {parse_timeout, poll_until, type Poll_result} from '../utils/polling';
 import {print, success, fail, dim, is_tty} from '../utils/output';
 import type {
     Create_template_request,
@@ -490,6 +490,40 @@ const format_heal_summary = (
         `  Completed steps: ${steps}`,
         `  Next: re-run to verify the fix → ${next_step}`,
     ].join('\n');
+};
+
+// Resume a self-healing job parked at the approval gate, then poll the
+// refactor progress to its next terminal/gate state. Shared by `approve`
+// and `heal --auto-approve`. Throws on resume failure or poll timeout.
+const resume_and_poll = async(
+    api_key: string,
+    collector_id: string,
+    approve: boolean,
+    opts: {timing?: boolean},
+    timeout: number
+): Promise<Poll_result<Ai_progress_response>>=>{
+    await post<unknown>(
+        api_key,
+        `/dca/collectors/${collector_id}/${RESUME_JOB_PATH}`,
+        {message: approve},
+        {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
+    );
+    return poll_until<Ai_progress_response>({
+        timeout_seconds: timeout,
+        fetch_once: ()=>get<Ai_progress_response>(
+            api_key,
+            `/dca/collectors/${collector_id}/${REFACTOR_PROGRESS_PATH}`,
+            {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
+        ),
+        get_status: extract_progress_status,
+        running_statuses: [RUNNING_SENTINEL],
+        timeout_label: `self-healing (collector ${collector_id})`,
+        on_running: ({attempt, timeout_seconds, result})=>{
+            const step = result.step ?? 'pending';
+            console.error(dim(`Step: ${step} — polling `
+                +`(attempt ${attempt}/${timeout_seconds})`));
+        },
+    });
 };
 
 const handle_heal_scraper = async(
@@ -1285,4 +1319,5 @@ export {
     print_heal_recovery_note,
     handle_heal_scraper,
     format_heal_summary,
+    resume_and_poll,
 };
