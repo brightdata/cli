@@ -6,20 +6,24 @@ import {post, get, type Body_hint, type Retry_config,
 import {load as load_config} from '../utils/config';
 import {ensure_authenticated} from '../utils/auth';
 import {start as start_spinner} from '../utils/spinner';
-import {parse_timeout, poll_until} from '../utils/polling';
+import {parse_timeout, poll_until, type Poll_result} from '../utils/polling';
 import {print, success, fail, dim, is_tty} from '../utils/output';
 import type {
     Create_template_request,
     Create_template_response,
+    Refactor_request,
     Trigger_ai_request,
     Trigger_ai_response,
     Ai_progress_response,
     Scraper_create_opts,
     Create_envelope,
+    Heal_envelope,
     Run_request,
     Trigger_immediate_response,
     Scraper_run_opts,
     Batch_trigger_response,
+    Scraper_heal_opts,
+    Scraper_approve_opts,
 } from '../types/scraper';
 
 // Scraper-studio body-pattern hints. Kept here, not in client.ts, so
@@ -47,11 +51,17 @@ const AI_PROGRESS_PATH = 'automate_template/progress';
 const RUNNING_SENTINEL = '__running__';
 const DONE_STATUS = 'done';
 const TERMINAL_FAIL_STATUSES = ['failed', 'error', 'cancelled'];
+const AWAITING_APPROVAL = '__awaiting_approval__';
+const AWAITING_STATUS = 'pending_answer';
+const RESUME_JOB_PATH = 'resume_automation_job';
 const TRIGGER_IMMEDIATE_ENDPOINT = '/dca/trigger_immediate';
 const GET_RESULT_ENDPOINT = '/dca/get_result';
 const SYNC_CRAWL_ENDPOINT = '/dca/crawl';
 const BATCH_TRIGGER_ENDPOINT = '/dca/trigger';
 const BATCH_DATASET_ENDPOINT = '/dca/dataset';
+const REFACTOR_TRIGGER_PATH = 'refactor_template';
+const REFACTOR_PROGRESS_PATH = 'refactor_template/progress';
+const PROMPT_MAX_LEN = 1000;
 const SYNC_TIMEOUT_MIN = 25;
 const SYNC_TIMEOUT_MAX = 50;
 const SYNC_TIMEOUT_DEFAULT = 50;
@@ -74,6 +84,44 @@ const parse_max_retries = (raw: string|undefined): number=>{
             +'Must be a non-negative integer.');
     return n;
 };
+
+const validate_heal_prompt = (raw: string): string=>{
+    const prompt = raw.trim();
+    if (!prompt)
+        throw new Error('scraper heal requires a non-empty <prompt> '
+            +'describing what to fix.');
+    if (prompt.length > PROMPT_MAX_LEN)
+        throw new Error(`Heal prompt is ${prompt.length} chars; the API `
+            +`limit is ${PROMPT_MAX_LEN}. Shorten it.`);
+    return prompt;
+};
+
+const build_refactor_request = (prompt: string): Refactor_request=>({
+    prompt,
+    custom_input: [],
+});
+
+const build_next_step = (collector_id: string,
+    url: string|undefined): string=>
+    `bdata scraper run ${collector_id} ${url ?? '<url>'}`;
+
+// Compact, defensive summary of the refactor diff for the awaiting-approval
+// envelope. The full diff (both templates) stays in the web UI at view_url.
+const build_diff_summary = (diff: unknown): string=>{
+    const generic = 'code change pending approval — see view_url';
+    if (!diff || typeof diff != 'object')
+        return generic;
+    const b = (diff as {template_b?: {steps?: unknown}}).template_b;
+    const steps = b && Array.isArray(b.steps) ? b.steps.length : undefined;
+    if (steps == undefined)
+        return generic;
+    return `proposed template has ${steps} step(s) — review at view_url`;
+};
+
+const build_approve_next_step = (collector_id: string,
+    url: string|undefined): string=>
+    `bdata scraper approve ${collector_id}`
+    +(url ? ` --url ${url}` : '');
 
 const build_ai_trigger_retry = (
     opts: Pick<Scraper_create_opts, 'maxRetries'|'retry'>
@@ -115,6 +163,18 @@ const print_stub_recovery_note = (collector_id: string): void=>{
     ));
 };
 
+const print_heal_recovery_note = (collector_id: string): void=>{
+    if (!collector_id)
+        return;
+    console.error(dim(
+        `Note: the heal did not complete, but scraper ${collector_id} `
+        +'is unchanged and still works as it did before.\n'
+        +`Open https://brightdata.com/cp/scrapers/${collector_id} `
+        +'to inspect it, or re-run `bdata scraper heal` with a sharper '
+        +'prompt.'
+    ));
+};
+
 const build_template_request = (
     opts: Scraper_create_opts
 ): Create_template_request=>({
@@ -147,6 +207,9 @@ const extract_progress_status = (
     {
         return result.status;
     }
+    // the self-healing flow pauses here awaiting user approval; stop polling.
+    if (result.status == AWAITING_STATUS)
+        return AWAITING_APPROVAL;
     return RUNNING_SENTINEL;
 };
 
@@ -185,7 +248,37 @@ const build_create_envelope = (params: {
     ...(params.error ? {error: params.error} : {}),
 });
 
-const wants_machine_output = (opts: Scraper_create_opts): boolean=>
+const build_heal_envelope = (params: {
+    collector_id: string;
+    status: string;
+    prompt: string;
+    progress?: Ai_progress_response;
+    url?: string;
+    error?: string;
+}): Heal_envelope=>{
+    const awaiting = params.status == 'awaiting_approval';
+    const next_step = awaiting
+        ? build_approve_next_step(params.collector_id, params.url)
+        : build_next_step(params.collector_id, params.url);
+    return {
+        collector_id: params.collector_id,
+        status: params.status,
+        completed_steps: params.progress?.completed_steps ?? [],
+        prompt: params.prompt,
+        view_url:
+            `https://brightdata.com/cp/scrapers/${params.collector_id}`,
+        next_step,
+        ...(awaiting && params.progress
+            ? {preview_result: params.progress.preview_result,
+                diff_summary: build_diff_summary(params.progress.diff),}
+            : {}),
+        ...(params.error ? {error: params.error} : {}),
+    };
+};
+
+const wants_machine_output = (
+    opts: {json?: boolean; pretty?: boolean; output?: string}
+): boolean=>
     !!(opts.json || opts.pretty || opts.output) || !is_tty;
 
 const emit_create_output = (
@@ -368,6 +461,337 @@ const handle_create_scraper = async(
         process.exit(1);
         return;
     }
+};
+
+const emit_heal_output = (
+    envelope: Heal_envelope,
+    progress: Ai_progress_response|null,
+    opts: {url?: string; json?: boolean; pretty?: boolean;
+        output?: string; legacyOutput?: boolean; timing?: boolean}
+): boolean=>{
+    if (!wants_machine_output(opts))
+        return false;
+    const print_opts = {json: opts.json, pretty: opts.pretty,
+        output: opts.output};
+    const payload = opts.legacyOutput && progress
+        ? (progress as unknown) : envelope;
+    print(payload, print_opts);
+    return true;
+};
+
+const format_heal_summary = (
+    collector_id: string,
+    prompt: string,
+    next_step: string,
+    progress: Ai_progress_response
+): string=>{
+    const steps = progress.completed_steps?.length ?? 0;
+    const lines = [`Scraper healed: ${collector_id}`];
+    if (prompt)
+        lines.push(`  Prompt: ${prompt}`);
+    lines.push(`  Completed steps: ${steps}`);
+    lines.push(`  Next: re-run to verify the fix → ${next_step}`);
+    return lines.join('\n');
+};
+
+// Resume a self-healing job parked at the approval gate, then poll the
+// refactor progress to its next terminal/gate state. Shared by `approve`
+// and `heal --auto-approve`. Throws on resume failure or poll timeout.
+const resume_and_poll = async(
+    api_key: string,
+    collector_id: string,
+    approve: boolean,
+    opts: {timing?: boolean},
+    timeout: number
+): Promise<Poll_result<Ai_progress_response>>=>{
+    await post<unknown>(
+        api_key,
+        `/dca/collectors/${collector_id}/${RESUME_JOB_PATH}`,
+        {message: approve},
+        {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
+    );
+    return poll_until<Ai_progress_response>({
+        timeout_seconds: timeout,
+        fetch_once: ()=>get<Ai_progress_response>(
+            api_key,
+            `/dca/collectors/${collector_id}/${REFACTOR_PROGRESS_PATH}`,
+            {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
+        ),
+        get_status: extract_progress_status,
+        running_statuses: [RUNNING_SENTINEL],
+        timeout_label: `self-healing (collector ${collector_id})`,
+        on_running: ({attempt, timeout_seconds, result})=>{
+            const step = result.step ?? 'pending';
+            console.error(dim(`Step: ${step} — polling `
+                +`(attempt ${attempt}/${timeout_seconds})`));
+        },
+    });
+};
+
+// Emit the terminal heal result: done → success envelope + run next_step;
+// any other (genuine-failure) status → failure envelope + recovery note +
+// exit 1. Shared by the default poll path and the --auto-approve path.
+const emit_heal_terminal = (
+    collector_id: string,
+    prompt: string,
+    opts: {url?: string; json?: boolean; pretty?: boolean;
+        output?: string; legacyOutput?: boolean; timing?: boolean},
+    progress: Ai_progress_response
+): void=>{
+    if (progress.status != DONE_STATUS)
+    {
+        console.error(`Self-healing failed (collector ${collector_id}, `
+            +`status: ${progress.status}).`);
+        emit_heal_output(
+            build_heal_envelope({
+                collector_id,
+                status: progress.status,
+                prompt,
+                progress,
+                url: opts.url,
+                error: `Self-healing finished with status `
+                    +`"${progress.status}".`,
+            }),
+            progress,
+            opts
+        );
+        print_heal_recovery_note(collector_id);
+        process.exit(1);
+        return;
+    }
+    const envelope = build_heal_envelope({
+        collector_id,
+        status: progress.status,
+        prompt,
+        progress,
+        url: opts.url,
+    });
+    if (emit_heal_output(envelope, progress, opts))
+        return;
+    success(format_heal_summary(
+        collector_id, prompt, envelope.next_step, progress));
+};
+
+const handle_heal_scraper = async(
+    collector_id: string,
+    raw_prompt: string,
+    opts: Scraper_heal_opts
+)=>{
+    const api_key = ensure_authenticated(opts.apiKey);
+    let prompt = '';
+    let timeout = 600;
+    let ai_retry: Retry_config;
+    try {
+        prompt = validate_heal_prompt(raw_prompt);
+        if (opts.url && !is_valid_url(opts.url))
+            throw new Error(`Invalid --url "${opts.url}".`);
+        timeout = parse_timeout(opts.timeout);
+        ai_retry = build_ai_trigger_retry(opts);
+    } catch(e) {
+        fail((e as Error).message);
+        return;
+    }
+    const trigger_spinner = start_spinner('Triggering self-healing...');
+    try {
+        await post<Trigger_ai_response>(
+            api_key,
+            `/dca/collectors/${collector_id}/${REFACTOR_TRIGGER_PATH}`,
+            build_refactor_request(prompt),
+            {timing: opts.timing, hints: SCRAPER_BODY_HINTS,
+                retry: ai_retry}
+        );
+        trigger_spinner.stop();
+    } catch(e) {
+        trigger_spinner.stop();
+        const msg = (e as Error).message;
+        console.error(`Failed to start self-healing for collector `
+            +`${collector_id}: ${msg}`);
+        emit_heal_output(
+            build_heal_envelope({
+                collector_id,
+                status: 'heal_trigger_failed',
+                prompt,
+                url: opts.url,
+                error: clean_error_message(msg),
+            }),
+            null,
+            opts
+        );
+        print_heal_recovery_note(collector_id);
+        process.exit(1);
+        return;
+    }
+    const poll_spinner = start_spinner('Healing scraper...');
+    try {
+        const poll_result = await poll_until<Ai_progress_response>({
+            timeout_seconds: timeout,
+            fetch_once: ()=>get<Ai_progress_response>(
+                api_key,
+                `/dca/collectors/${collector_id}/${REFACTOR_PROGRESS_PATH}`,
+                {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
+            ),
+            get_status: extract_progress_status,
+            running_statuses: [RUNNING_SENTINEL],
+            timeout_label: `self-healing (collector ${collector_id})`,
+            on_running: ({attempt, timeout_seconds, result})=>{
+                const step = result.step ?? 'pending';
+                console.error(dim(`Step: ${step} — polling `
+                    +`(attempt ${attempt}/${timeout_seconds})`));
+            },
+        });
+        poll_spinner.stop();
+        console.error(dim(
+            `Done in ${poll_result.attempts} poll attempts.`));
+        const progress = poll_result.result;
+        if (progress.status == AWAITING_STATUS && opts.autoApprove)
+        {
+            let resumed: Poll_result<Ai_progress_response>;
+            try {
+                resumed = await resume_and_poll(
+                    api_key, collector_id, true, opts, timeout);
+            } catch(e) {
+                const msg = (e as Error).message;
+                const status = /Timeout after/i.test(msg)
+                    ? 'poll_failed' : 'resume_failed';
+                console.error(`Failed to auto-approve self-healing for `
+                    +`collector ${collector_id}: ${msg}`);
+                emit_heal_output(
+                    build_heal_envelope({
+                        collector_id,
+                        status,
+                        prompt,
+                        url: opts.url,
+                        error: clean_error_message(msg),
+                    }),
+                    null,
+                    opts
+                );
+                print_heal_recovery_note(collector_id);
+                process.exit(1);
+                return;
+            }
+            emit_heal_terminal(
+                collector_id, prompt, opts, resumed.result);
+            return;
+        }
+        if (progress.status == AWAITING_STATUS)
+        {
+            console.error(dim(`Heal ready — awaiting approval `
+                +`(collector ${collector_id}).`));
+            const envelope = build_heal_envelope({
+                collector_id,
+                status: 'awaiting_approval',
+                prompt,
+                progress,
+                url: opts.url,
+            });
+            if (emit_heal_output(envelope, progress, opts))
+                return;
+            success(format_heal_summary(
+                collector_id, prompt, envelope.next_step, progress));
+            return;
+        }
+        emit_heal_terminal(collector_id, prompt, opts, progress);
+    } catch(e) {
+        poll_spinner.stop();
+        const msg = (e as Error).message;
+        const suffix = msg.includes(collector_id)
+            ? '' : ` (collector ${collector_id})`;
+        console.error(`${msg}${suffix}`);
+        emit_heal_output(
+            build_heal_envelope({
+                collector_id,
+                status: 'poll_failed',
+                prompt,
+                url: opts.url,
+                error: clean_error_message(msg),
+            }),
+            null,
+            opts
+        );
+        print_heal_recovery_note(collector_id);
+        process.exit(1);
+        return;
+    }
+};
+
+const handle_approve_scraper = async(
+    collector_id: string,
+    opts: Scraper_approve_opts
+)=>{
+    const api_key = ensure_authenticated(opts.apiKey);
+    let timeout = 600;
+    try {
+        if (opts.url && !is_valid_url(opts.url))
+            throw new Error(`Invalid --url "${opts.url}".`);
+        timeout = parse_timeout(opts.timeout);
+    } catch(e) {
+        fail((e as Error).message);
+        return;
+    }
+    const approve = !opts.reject;
+    const verb = approve ? 'Approving' : 'Rejecting';
+    const spinner = start_spinner(`${verb} self-healing...`);
+    let poll_result: Poll_result<Ai_progress_response>;
+    try {
+        poll_result = await resume_and_poll(
+            api_key, collector_id, approve, opts, timeout);
+        spinner.stop();
+    } catch(e) {
+        spinner.stop();
+        const msg = (e as Error).message;
+        const is_timeout = /Timeout after/i.test(msg);
+        const status = is_timeout ? 'poll_failed' : 'resume_failed';
+        console.error(`Failed to ${approve ? 'approve' : 'reject'} `
+            +`self-healing for collector ${collector_id}: ${msg}`);
+        emit_heal_output(
+            build_heal_envelope({
+                collector_id,
+                status,
+                prompt: '',
+                url: opts.url,
+                error: clean_error_message(msg),
+            }),
+            null,
+            opts
+        );
+        print_heal_recovery_note(collector_id);
+        process.exit(1);
+        return;
+    }
+    const progress = poll_result.result;
+    // a resumed job can hit another approval gate (multi-step approval).
+    if (progress.status == AWAITING_STATUS)
+    {
+        const envelope = build_heal_envelope({
+            collector_id,
+            status: 'awaiting_approval',
+            prompt: '',
+            progress,
+            url: opts.url,
+        });
+        if (emit_heal_output(envelope, progress, opts))
+            return;
+        success(format_heal_summary(
+            collector_id, '', envelope.next_step, progress));
+        return;
+    }
+    if (!approve && progress.status == DONE_STATUS)
+    {
+        const envelope = build_heal_envelope({
+            collector_id,
+            status: 'rejected',
+            prompt: '',
+            progress,
+            url: opts.url,
+        });
+        if (emit_heal_output(envelope, progress, opts))
+            return;
+        success(`Heal rejected for ${collector_id}. Re-run `
+            +'`bdata scraper heal` with a sharper prompt to try again.');
+        return;
+    }
+    emit_heal_terminal(collector_id, '', opts, progress);
 };
 
 const parse_sync_timeout = (raw: string|undefined): number=>{
@@ -947,10 +1371,96 @@ add_examples(run_subcommand, [
     },
 ]);
 
+const heal_subcommand = new Command('heal')
+    .description(
+        'Fix an existing scraper in place via AI self-healing')
+    .argument('<collector_id>',
+        'Collector ID of the scraper to fix (from `scraper create`)')
+    .argument('<prompt>',
+        'What is broken / what to fix (max 1000 chars)')
+    .option('--url <url>',
+        'Verify target woven into the next-step hint. Not sent to the '
+        +'heal call; heal only mutates the scraper.')
+    .option('--auto-approve',
+        'When the heal hits the approval gate, approve it automatically '
+        +'and poll through to done (default: stop and let you review).')
+    .option('--timeout <seconds>',
+        'Polling timeout in seconds (default: 600)')
+    .option('--max-retries <n>',
+        'Max retries on the AI-Flow concurrent-job cap 429 '
+        +`(default: ${AI_TRIGGER_DEFAULT_RETRIES}). Each wait grows `
+        +'exponentially with jitter, up to ~4 min between attempts.')
+    .option('--no-retry',
+        'Fail immediately on 429 instead of waiting through the cap. '
+        +'Equivalent to --max-retries 0.')
+    .option('-o, --output <path>', 'Write output to file')
+    .option('--json', 'Force JSON output')
+    .option('--pretty', 'Pretty-print JSON output')
+    .option('--legacy-output',
+        'Emit the bare AI-progress payload instead of the '
+        +'{collector_id, status, prompt, next_step, ...} envelope.')
+    .option('--timing', 'Show request timing')
+    .option('-k, --api-key <key>', 'Override API key')
+    .action(handle_heal_scraper);
+
+add_examples(heal_subcommand, [
+    {
+        description: 'Fix a scraper whose price selector drifted, then '
+            +'get a ready-to-run verify command back',
+        command: 'brightdata scraper heal c_mp3tuab31lswoxvpws '
+            +'"The price field returns null — the selector moved into a '
+            +'span with data-testid. Capture price and currency again." '
+            +'--url https://example.com/product/1',
+    },
+    {
+        description: 'Heal and save the result envelope (next_step tells '
+            +'you how to verify)',
+        command: 'brightdata scraper heal c_mp3tuab31lswoxvpws '
+            +'"Reviews stopped extracting after the page redesign" '
+            +'--pretty -o heal.json',
+    },
+]);
+
+const approve_subcommand = new Command('approve')
+    .description(
+        'Approve (or --reject) a heal that is awaiting approval')
+    .argument('<collector_id>',
+        'Collector ID of the scraper whose heal is awaiting approval')
+    .option('--reject',
+        'Reject the proposed fix instead of approving it.')
+    .option('--url <url>',
+        'Verify target woven into the next-step hint on success.')
+    .option('--timeout <seconds>',
+        'Polling timeout in seconds (default: 600)')
+    .option('-o, --output <path>', 'Write output to file')
+    .option('--json', 'Force JSON output')
+    .option('--pretty', 'Pretty-print JSON output')
+    .option('--legacy-output',
+        'Emit the bare AI-progress payload instead of the envelope.')
+    .option('--timing', 'Show request timing')
+    .option('-k, --api-key <key>', 'Override API key')
+    .action(handle_approve_scraper);
+
+add_examples(approve_subcommand, [
+    {
+        description: 'Approve a heal that stopped at awaiting_approval, '
+            +'then verify',
+        command: 'brightdata scraper approve c_mp3tuab31lswoxvpws '
+            +'--url https://example.com/product/1',
+    },
+    {
+        description: 'Reject a proposed fix and start over with a sharper '
+            +'heal prompt',
+        command: 'brightdata scraper approve c_mp3tuab31lswoxvpws --reject',
+    },
+]);
+
 const scraper_command = new Command('scraper')
     .description('Build and manage Bright Data scrapers')
     .addCommand(create_subcommand)
-    .addCommand(run_subcommand);
+    .addCommand(run_subcommand)
+    .addCommand(heal_subcommand)
+    .addCommand(approve_subcommand);
 
 export {
     scraper_command,
@@ -980,4 +1490,15 @@ export {
     read_input_file,
     resolve_run_inputs,
     is_valid_url,
+    validate_heal_prompt,
+    build_refactor_request,
+    build_next_step,
+    build_diff_summary,
+    build_approve_next_step,
+    build_heal_envelope,
+    print_heal_recovery_note,
+    handle_heal_scraper,
+    format_heal_summary,
+    resume_and_poll,
+    handle_approve_scraper,
 };

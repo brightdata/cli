@@ -27,6 +27,8 @@
 | `brightdata discover` | AI-powered web discovery - find and rank results by intent with optional full-page content |
 | `brightdata scraper create` | Build a Bright Data scraper from a natural-language description using AI |
 | `brightdata scraper run` | Run a Bright Data scraper on a URL and return the data |
+| `brightdata scraper heal` | Fix an existing scraper in place via AI self-healing (stops at an approval gate) |
+| `brightdata scraper approve` | Approve (or reject) a self-healing fix that is awaiting approval |
 | `brightdata pipelines` | Extract structured data from 40+ platforms (Amazon, LinkedIn, TikTok…) |
 | `brightdata browser` | Control a real browser via Bright Data's Scraping Browser — navigate, snapshot, click, type, and more |
 | `brightdata zones` | List and inspect your Bright Data proxy zones |
@@ -50,6 +52,8 @@
   - [discover](#discover)
   - [scraper create](#scraper-create)
   - [scraper run](#scraper-run)
+  - [scraper heal](#scraper-heal)
+  - [scraper approve](#scraper-approve)
   - [pipelines](#pipelines)
   - [browser](#browser)
   - [status](#status)
@@ -471,6 +475,105 @@ brightdata scraper run c_mp3tuab31lswoxvpws --input-file urls.txt -o products.js
 # Multi-URL from a JSON array
 echo '["https://example.com/p/1","https://example.com/p/2"]' > urls.json
 brightdata scraper run c_mp3tuab31lswoxvpws --input-file urls.json
+```
+
+---
+
+### `scraper heal`
+
+Fix an existing scraper **in place** when it ran but returned wrong, empty, or partial data. The `collector_id` stays the same — the scraper is improved, not replaced. This is the maintenance twin of `scraper create`: it triggers Bright Data's AI self-healing flow (`POST /dca/collectors/{id}/refactor_template`), then polls progress.
+
+```bash
+brightdata scraper heal <collector_id> "<prompt>" [options]
+```
+
+**You are the detector.** The CLI never decides on its own that a scraper is broken — you inspect the run output and decide. The `<prompt>` is required (max 1000 chars); name exactly what is wrong and what the correct output should be. Vague prompts produce vague heals.
+
+| Flag | Description |
+|---|---|
+| `--url <url>` | Verify target woven into the success `next_step` hint (not sent to the heal call) |
+| `--auto-approve` | When the heal hits the approval gate, approve it automatically and poll through to `done` (default: stop and let you review) |
+| `--timeout <seconds>` | Polling timeout (default: `600`) |
+| `--max-retries <n>` | Max retries on the AI-Flow concurrent-job-cap `429` (default: `4`) |
+| `--no-retry` | Fail immediately on `429` instead of waiting through the cap |
+| `-o, --output <path>` | Write output to file |
+| `--json` / `--pretty` | JSON output (raw / indented) |
+| `--legacy-output` | Emit the bare AI-progress payload instead of the envelope |
+| `--timing` | Show request timing |
+| `-k, --api-key <key>` | Override API key |
+
+**The approval gate**
+
+Self-healing is human-in-the-loop. Without `--auto-approve`, `heal` runs the fix and then **stops at an approval gate** rather than committing it, exiting `0` with a `status: "awaiting_approval"` envelope:
+
+```json
+{
+  "collector_id": "c_mp3tuab31lswoxvpws",
+  "status":       "awaiting_approval",
+  "prompt":       "Price returns null — the selector moved …",
+  "preview_result": [ { "title": "…", "price": { "value": 51.77, "currency": "GBP" } }, … ],
+  "diff_summary": "proposed template has 1 step(s) — review at view_url",
+  "view_url":     "https://brightdata.com/cp/scrapers/c_mp3tuab31lswoxvpws",
+  "next_step":    "bdata scraper approve c_mp3tuab31lswoxvpws --url https://example.com/product/1"
+}
+```
+
+`preview_result` shows the sample rows the fixed scraper would produce — review them, then run the `next_step` (`scraper approve`) to commit. `awaiting_approval` is **not** a failure; it means the fix is ready and waiting for your decision. A failed heal (`429` cap exhausted, timeout, terminal `failed`) is **non-destructive** — the existing scraper is unchanged and still works as before.
+
+**Examples**
+
+```bash
+# Heal a scraper, stop at the gate, and get a ready-to-run verify command back
+brightdata scraper heal c_mp3tuab31lswoxvpws \
+    "The price field returns null — the selector moved into a span with \
+     data-testid. Capture price and currency again." \
+    --url https://example.com/product/1 --pretty -o heal.json
+
+# Fully autonomous: heal and approve in one command (no manual review)
+brightdata scraper heal c_mp3tuab31lswoxvpws \
+    "Reviews stopped extracting after the page redesign" --auto-approve
+```
+
+---
+
+### `scraper approve`
+
+Commit (or reject) a self-healing fix that `scraper heal` left **awaiting approval**. Calls `POST /dca/collectors/{id}/resume_automation_job`, then polls the refactor job to `done`.
+
+```bash
+brightdata scraper approve <collector_id> [options]
+```
+
+| Flag | Description |
+|---|---|
+| `--reject` | Reject the proposed fix instead of approving it |
+| `--url <url>` | Verify target woven into the success `next_step` hint |
+| `--timeout <seconds>` | Polling timeout (default: `600`) |
+| `-o, --output <path>` | Write output to file |
+| `--json` / `--pretty` | JSON output (raw / indented) |
+| `--legacy-output` | Emit the bare AI-progress payload instead of the envelope |
+| `--timing` | Show request timing |
+| `-k, --api-key <key>` | Override API key |
+
+On success the job advances to `status: "done"` and the envelope hands back a `next_step` = `scraper run <id> <url>` so you can verify the committed fix. `--reject` discards the proposed fix (`status: "rejected"`) — re-run `scraper heal` with a sharper prompt to try again. If a heal needs multiple approvals, `approve` may stop at `awaiting_approval` again — just run it once more.
+
+**The self-healing loop**
+
+```bash
+# 1. Run and inspect the data
+brightdata scraper run c_mp3tuab31lswoxvpws https://example.com/product/1 --json -o out.json
+
+# 2. If the data is wrong, heal (stops at the approval gate)
+brightdata scraper heal c_mp3tuab31lswoxvpws \
+    "Price returns null — the selector moved; capture price + currency." \
+    --url https://example.com/product/1 --pretty -o heal.json
+
+# 3. Review heal.json's preview_result, then approve
+brightdata scraper approve c_mp3tuab31lswoxvpws \
+    --url https://example.com/product/1 --pretty -o approve.json
+
+# 4. Verify the committed fix
+brightdata scraper run c_mp3tuab31lswoxvpws https://example.com/product/1 --pretty
 ```
 
 ---

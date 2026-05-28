@@ -3,7 +3,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
 import {Command} from 'commander';
-import type {Scraper_create_opts} from '../../types/scraper';
+import type {Scraper_create_opts, Scraper_heal_opts,
+    Scraper_approve_opts} from '../../types/scraper';
 
 const mocks = vi.hoisted(()=>({
     post: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock('../../utils/config', ()=>({
 }));
 
 import {
+    scraper_command,
     build_template_request,
     build_ai_request,
     extract_progress_status,
@@ -75,6 +77,17 @@ import {
     read_input_file,
     resolve_run_inputs,
     is_valid_url,
+    validate_heal_prompt,
+    build_refactor_request,
+    build_next_step,
+    build_diff_summary,
+    build_approve_next_step,
+    build_heal_envelope,
+    print_heal_recovery_note,
+    handle_heal_scraper,
+    format_heal_summary,
+    resume_and_poll,
+    handle_approve_scraper,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -229,6 +242,11 @@ describe('commands/scraper', ()=>{
             expect(extract_progress_status(null as never)).toBeUndefined();
             expect(extract_progress_status({} as never)).toBeUndefined();
         });
+
+        it('returns the awaiting-approval sentinel for pending_answer', ()=>{
+            expect(extract_progress_status({status: 'pending_answer'}))
+                .toBe('__awaiting_approval__');
+        });
     });
 
     describe('format_create_summary', ()=>{
@@ -246,6 +264,29 @@ describe('commands/scraper', ()=>{
         it('handles missing completed_steps gracefully', ()=>{
             const out = format_create_summary('c_abc', 'name', {status: 'done'});
             expect(out).toContain('c_abc');
+            expect(out).toContain('0');
+        });
+    });
+
+    describe('format_heal_summary', ()=>{
+        it('includes the collector id, prompt, step count, and '
+            +'next-step command', ()=>{
+            const out = format_heal_summary(
+                'c_abc',
+                'fix the price selector',
+                'bdata scraper run c_abc https://x.com/p/1',
+                {status: 'done', completed_steps: ['plan', 'patch']}
+            );
+            expect(out).toContain('c_abc');
+            expect(out).toContain('fix the price selector');
+            expect(out).toContain('2');
+            expect(out).toContain(
+                'bdata scraper run c_abc https://x.com/p/1');
+        });
+
+        it('handles missing completed_steps as zero', ()=>{
+            const out = format_heal_summary('c_abc', 'p',
+                'bdata scraper run c_abc <url>', {status: 'done'});
             expect(out).toContain('0');
         });
     });
@@ -1184,6 +1225,190 @@ describe('commands/scraper', ()=>{
         });
     });
 
+    describe('validate_heal_prompt', ()=>{
+        it('returns the trimmed prompt for valid input', ()=>{
+            expect(validate_heal_prompt('  fix the price selector  '))
+                .toBe('fix the price selector');
+        });
+
+        it('throws on empty / whitespace-only prompt', ()=>{
+            expect(()=>validate_heal_prompt('')).toThrow(/prompt/i);
+            expect(()=>validate_heal_prompt('   ')).toThrow(/prompt/i);
+        });
+
+        it('throws when prompt exceeds 1000 chars', ()=>{
+            expect(()=>validate_heal_prompt('x'.repeat(1001)))
+                .toThrow(/1000/);
+        });
+
+        it('accepts a prompt exactly at the 1000-char limit', ()=>{
+            const p = 'x'.repeat(1000);
+            expect(validate_heal_prompt(p)).toBe(p);
+        });
+    });
+
+    describe('build_refactor_request', ()=>{
+        it('wraps the prompt with an empty custom_input array', ()=>{
+            expect(build_refactor_request('fix selectors')).toEqual({
+                prompt: 'fix selectors',
+                custom_input: [],
+            });
+        });
+    });
+
+    describe('build_next_step', ()=>{
+        it('bakes in the real url when provided', ()=>{
+            expect(build_next_step('c_abc', 'https://x.com/p/1'))
+                .toBe('bdata scraper run c_abc https://x.com/p/1');
+        });
+
+        it('uses a <url> placeholder when no url is provided', ()=>{
+            expect(build_next_step('c_abc', undefined))
+                .toBe('bdata scraper run c_abc <url>');
+        });
+    });
+
+    describe('build_diff_summary', ()=>{
+        it('summarizes a well-formed template diff by step count', ()=>{
+            const diff = {
+                template_a: {steps: [{name: 'a'}, {name: 'b'}]},
+                template_b: {steps: [{name: 'a'}, {name: 'b'}, {name: 'c'}]},
+            };
+            const out = build_diff_summary(diff);
+            expect(out).toMatch(/step/i);
+            expect(out).toContain('3');
+        });
+
+        it('falls back to a generic note for a malformed diff', ()=>{
+            expect(build_diff_summary(null)).toMatch(/see view_url/i);
+            expect(build_diff_summary({nope: 1})).toMatch(/see view_url/i);
+            expect(build_diff_summary('garbage')).toMatch(/see view_url/i);
+        });
+    });
+
+    describe('build_approve_next_step', ()=>{
+        it('builds an approve command with --url when url given', ()=>{
+            expect(build_approve_next_step('c_abc', 'https://x.com/p/1'))
+                .toBe('bdata scraper approve c_abc '
+                    +'--url https://x.com/p/1');
+        });
+
+        it('omits --url when no url is provided', ()=>{
+            expect(build_approve_next_step('c_abc', undefined))
+                .toBe('bdata scraper approve c_abc');
+        });
+    });
+
+    describe('build_heal_envelope', ()=>{
+        it('returns the documented success shape', ()=>{
+            const env = build_heal_envelope({
+                collector_id: 'c_xyz',
+                status: 'done',
+                prompt: 'fix price',
+                progress: {status: 'done', completed_steps: ['plan', 'patch']},
+                url: 'https://x.com/p/1',
+            });
+            expect(env).toEqual({
+                collector_id: 'c_xyz',
+                status: 'done',
+                completed_steps: ['plan', 'patch'],
+                prompt: 'fix price',
+                view_url: 'https://brightdata.com/cp/scrapers/c_xyz',
+                next_step: 'bdata scraper run c_xyz https://x.com/p/1',
+            });
+        });
+
+        it('uses a <url> placeholder in next_step when no url given', ()=>{
+            const env = build_heal_envelope({
+                collector_id: 'c_xyz',
+                status: 'done',
+                prompt: 'fix price',
+                progress: {status: 'done', completed_steps: []},
+            });
+            expect(env.next_step)
+                .toBe('bdata scraper run c_xyz <url>');
+        });
+
+        it('records error + empty steps on failure, keeps view_url '
+            +'and next_step', ()=>{
+            const env = build_heal_envelope({
+                collector_id: 'c_xyz',
+                status: 'heal_trigger_failed',
+                prompt: 'fix price',
+                error: 'Cannot run more than 3 jobs in parallel',
+            });
+            expect(env.status).toBe('heal_trigger_failed');
+            expect(env.error).toMatch(/parallel/);
+            expect(env.completed_steps).toEqual([]);
+            expect(env.view_url)
+                .toBe('https://brightdata.com/cp/scrapers/c_xyz');
+            expect(env.next_step)
+                .toBe('bdata scraper run c_xyz <url>');
+        });
+
+        it('on awaiting_approval includes preview_result, diff_summary, '
+            +'and an approve next_step', ()=>{
+            const env = build_heal_envelope({
+                collector_id: 'c_xyz',
+                status: 'awaiting_approval',
+                prompt: 'fix it',
+                progress: {
+                    status: 'pending_answer',
+                    completed_steps: ['planner', 'code_fixer'],
+                    preview_result: [{title: 'A Light in the Attic'}],
+                    diff: {template_b: {steps: [{name: 'x'}, {name: 'y'}]}},
+                },
+                url: 'https://x.com/p/1',
+            });
+            expect(env.status).toBe('awaiting_approval');
+            expect(env.preview_result)
+                .toEqual([{title: 'A Light in the Attic'}]);
+            expect(env.diff_summary).toMatch(/2 step/);
+            expect(env.next_step)
+                .toBe('bdata scraper approve c_xyz '
+                    +'--url https://x.com/p/1');
+        });
+
+        it('on done keeps the run next_step and omits gate fields', ()=>{
+            const env = build_heal_envelope({
+                collector_id: 'c_xyz',
+                status: 'done',
+                prompt: 'fix it',
+                progress: {status: 'done', completed_steps: ['patch']},
+                url: 'https://x.com/p/1',
+            });
+            expect(env.next_step)
+                .toBe('bdata scraper run c_xyz https://x.com/p/1');
+            expect(env).not.toHaveProperty('preview_result');
+            expect(env).not.toHaveProperty('diff_summary');
+        });
+    });
+
+    describe('print_heal_recovery_note', ()=>{
+        it('reassures that the scraper is unchanged and points to the UI',
+            ()=>{
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            print_heal_recovery_note('c_xyz');
+            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(msg).toContain('c_xyz');
+            expect(msg).toMatch(
+                /https:\/\/brightdata\.com\/cp\/scrapers\/c_xyz/);
+            expect(msg).toMatch(/unchanged|still works|was not modified/i);
+            // Must NOT reuse create's destructive "half-built" wording.
+            expect(msg).not.toMatch(/half-built/);
+            error.mockRestore();
+        });
+
+        it('does nothing when collector_id is empty', ()=>{
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            print_heal_recovery_note('');
+            expect(error).not.toHaveBeenCalled();
+            error.mockRestore();
+        });
+    });
+
     describe('parse_urls_arg', ()=>{
         it('splits, trims, and drops empties', ()=>{
             expect(parse_urls_arg(
@@ -1340,6 +1565,425 @@ describe('commands/scraper', ()=>{
         });
     });
 
+    describe('handle_heal_scraper', ()=>{
+        it('chains trigger → poll and prints the envelope in non-TTY',
+            async()=>{
+            mocks.post.mockResolvedValueOnce({id: 'rh_xyz', queued: false});
+            mocks.get.mockResolvedValue({status: 'done',
+                completed_steps: ['plan', 'patch']});
+            mocks.poll_until.mockImplementation(async(o: never)=>{
+                const cfg = o as {fetch_once: ()=>Promise<unknown>};
+                await cfg.fetch_once();
+                return {result: {status: 'done',
+                    completed_steps: ['plan', 'patch']}, attempts: 3};
+            });
+            await handle_heal_scraper('c_abc', 'fix the price selector',
+                {url: 'https://x.com/p/1'});
+            expect(mocks.post).toHaveBeenCalledWith(
+                'api_key',
+                '/dca/collectors/c_abc/refactor_template',
+                {prompt: 'fix the price selector', custom_input: []},
+                expect.objectContaining({hints: SCRAPER_BODY_HINTS})
+            );
+            expect(mocks.poll_until).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    timeout_seconds: 600,
+                    running_statuses: ['__running__'],
+                    timeout_label: expect.stringContaining('c_abc'),
+                })
+            );
+            expect(mocks.get).toHaveBeenCalledWith(
+                'api_key',
+                '/dca/collectors/c_abc/refactor_template/progress',
+                expect.objectContaining({hints: SCRAPER_BODY_HINTS})
+            );
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    collector_id: 'c_abc',
+                    status: 'done',
+                    completed_steps: ['plan', 'patch'],
+                    prompt: 'fix the price selector',
+                    view_url: 'https://brightdata.com/cp/scrapers/c_abc',
+                    next_step:
+                        'bdata scraper run c_abc https://x.com/p/1',
+                }),
+                {json: undefined, pretty: undefined, output: undefined}
+            );
+        });
+
+        it('passes the AI-trigger retry config to the refactor post',
+            async()=>{
+            mocks.post.mockResolvedValueOnce({id: 'rh_xyz'});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: []},
+                attempts: 1,
+            });
+            await handle_heal_scraper('c_abc', 'fix it', {maxRetries: '7'});
+            const opts = mocks.post.mock.calls[0][3] as
+                {retry?: {max_attempts: number}};
+            expect(opts.retry!.max_attempts).toBe(7);
+        });
+
+        it('fails fast on an empty prompt (no network call)', async()=>{
+            await expect(handle_heal_scraper('c_abc', '   ', {}))
+                .rejects.toThrow(/prompt/i);
+            expect(mocks.fail).toHaveBeenCalledWith(
+                expect.stringMatching(/prompt/i));
+            expect(mocks.post).not.toHaveBeenCalled();
+        });
+
+        it('fails fast on an over-long prompt (no network call)',
+            async()=>{
+            await expect(
+                handle_heal_scraper('c_abc', 'x'.repeat(1001), {}))
+                .rejects.toThrow(/1000/);
+            expect(mocks.post).not.toHaveBeenCalled();
+            expect(mocks.fail).toHaveBeenCalledWith(
+                expect.stringMatching(/1000/));
+        });
+
+        it('fails fast on an invalid --url (no network call)', async()=>{
+            await expect(
+                handle_heal_scraper('c_abc', 'fix it',
+                    {url: 'not-a-url'}))
+                .rejects.toThrow(/url/i);
+            expect(mocks.post).not.toHaveBeenCalled();
+            expect(mocks.fail).toHaveBeenCalledWith(
+                expect.stringMatching(/url/i));
+        });
+
+        it('emits the failure envelope + recovery note when trigger '
+            +'fails', async()=>{
+            mocks.post.mockRejectedValueOnce(
+                new Error('Cannot run more than 3 jobs in parallel'));
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_heal_scraper('c_abc', 'fix it',
+                {output: 'heal.json'});
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    collector_id: 'c_abc',
+                    status: 'heal_trigger_failed',
+                    error: 'Cannot run more than 3 jobs in parallel',
+                }),
+                expect.objectContaining({output: 'heal.json'})
+            );
+            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(msg).toMatch(/unchanged|still works/i);
+            expect(exit).toHaveBeenCalledWith(1);
+            exit.mockRestore();
+            error.mockRestore();
+        });
+
+        it('emits the failure envelope when poll returns status != done',
+            async()=>{
+            mocks.post.mockResolvedValueOnce({id: 'rh_xyz'});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'failed', completed_steps: ['plan']},
+                attempts: 2,
+            });
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_heal_scraper('c_abc', 'fix it',
+                {output: 'heal.json'});
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    collector_id: 'c_abc',
+                    status: 'failed',
+                    completed_steps: ['plan'],
+                    error: expect.stringMatching(/finished with status/),
+                }),
+                expect.objectContaining({output: 'heal.json'})
+            );
+            expect(exit).toHaveBeenCalledWith(1);
+            exit.mockRestore();
+            error.mockRestore();
+        });
+
+        it('emits the failure envelope when polling throws (timeout)',
+            async()=>{
+            mocks.post.mockResolvedValueOnce({id: 'rh_xyz'});
+            mocks.poll_until.mockRejectedValue(
+                new Error('Timeout after 600 seconds waiting for heal'));
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_heal_scraper('c_abc', 'fix it',
+                {output: 'heal.json'});
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    collector_id: 'c_abc',
+                    status: 'poll_failed',
+                    error: expect.stringMatching(/Timeout/),
+                }),
+                expect.objectContaining({output: 'heal.json'})
+            );
+            expect(exit).toHaveBeenCalledWith(1);
+            exit.mockRestore();
+            error.mockRestore();
+        });
+
+        it('--legacy-output emits the bare progress payload', async()=>{
+            mocks.post.mockResolvedValueOnce({id: 'rh_xyz'});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: ['plan']},
+                attempts: 1,
+            });
+            await handle_heal_scraper('c_abc', 'fix it',
+                {output: 'heal.json', legacyOutput: true});
+            const written = mocks.print.mock.calls[0][0] as
+                {collector_id?: unknown; status?: string};
+            expect(written.collector_id).toBeUndefined();
+            expect(written).not.toHaveProperty('next_step');
+            expect(written.status).toBe('done');
+        });
+
+        it('stops at the approval gate with awaiting_approval (exit 0, '
+            +'no resume call)', async()=>{
+            mocks.post.mockResolvedValueOnce({id: 'rh_xyz'});
+            mocks.poll_until.mockResolvedValue({
+                result: {
+                    status: 'pending_answer',
+                    completed_steps: ['planner', 'code_fixer'],
+                    preview_result: [{title: 'A Light in the Attic'}],
+                    diff: {template_b: {steps: [{name: 'x'}]}},
+                },
+                attempts: 5,
+            });
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            await handle_heal_scraper('c_abc', 'fix it',
+                {url: 'https://x.com/p/1', output: 'heal.json'});
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    collector_id: 'c_abc',
+                    status: 'awaiting_approval',
+                    preview_result: [{title: 'A Light in the Attic'}],
+                    next_step:
+                        'bdata scraper approve c_abc --url https://x.com/p/1',
+                }),
+                expect.objectContaining({output: 'heal.json'})
+            );
+            expect(mocks.post).toHaveBeenCalledTimes(1);
+            expect(exit).not.toHaveBeenCalledWith(1);
+            exit.mockRestore();
+        });
+
+        it('--auto-approve resumes at the gate and polls to done', async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'rh_xyz'})
+                .mockResolvedValueOnce({ok: true});
+            mocks.poll_until
+                .mockResolvedValueOnce({
+                    result: {status: 'pending_answer',
+                        completed_steps: ['code_fixer'],
+                        preview_result: [{title: 't'}], diff: {}},
+                    attempts: 3,
+                })
+                .mockResolvedValueOnce({
+                    result: {status: 'done', completed_steps: ['patch']},
+                    attempts: 2,
+                });
+            await handle_heal_scraper('c_abc', 'fix it',
+                {url: 'https://x.com/p/1', autoApprove: true,
+                    output: 'heal.json'});
+            expect(mocks.post).toHaveBeenNthCalledWith(
+                2, 'api_key',
+                '/dca/collectors/c_abc/resume_automation_job',
+                {message: true},
+                expect.objectContaining({hints: SCRAPER_BODY_HINTS})
+            );
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    status: 'done',
+                    next_step: 'bdata scraper run c_abc https://x.com/p/1',
+                }),
+                expect.objectContaining({output: 'heal.json'})
+            );
+            expect(mocks.poll_until).toHaveBeenCalledTimes(2);
+        });
+
+        it('--auto-approve labels a resume POST failure as resume_failed '
+            +'(not poll_failed)', async()=>{
+            mocks.post
+                .mockResolvedValueOnce({id: 'rh_xyz'})            // trigger
+                .mockRejectedValueOnce(                            // resume
+                    new Error('{"error":"job not awaiting approval"}'));
+            mocks.poll_until.mockResolvedValueOnce({
+                result: {status: 'pending_answer',
+                    completed_steps: ['code_fixer'],
+                    preview_result: [{title: 't'}], diff: {}},
+                attempts: 3,
+            });
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_heal_scraper('c_abc', 'fix it',
+                {autoApprove: true, output: 'heal.json'});
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({status: 'resume_failed'}),
+                expect.objectContaining({output: 'heal.json'})
+            );
+            expect(exit).toHaveBeenCalledWith(1);
+            exit.mockRestore();
+            error.mockRestore();
+        });
+    });
+
+    describe('resume_and_poll', ()=>{
+        it('posts resume_automation_job then polls progress, returns '
+            +'the poll result', async()=>{
+            mocks.post.mockResolvedValueOnce({ok: true});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: ['patch']},
+                attempts: 2,
+            });
+            const out = await resume_and_poll(
+                'api_key', 'c_abc', true, {timing: undefined}, 600);
+            expect(mocks.post).toHaveBeenCalledWith(
+                'api_key',
+                '/dca/collectors/c_abc/resume_automation_job',
+                {message: true},
+                expect.objectContaining({hints: SCRAPER_BODY_HINTS})
+            );
+            expect(mocks.poll_until).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    timeout_seconds: 600,
+                    running_statuses: ['__running__'],
+                })
+            );
+            expect(out.result.status).toBe('done');
+        });
+
+        it('sends message:false when approve=false (reject)', async()=>{
+            mocks.post.mockResolvedValueOnce({ok: true});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: []},
+                attempts: 1,
+            });
+            await resume_and_poll('api_key', 'c_abc', false,
+                {timing: undefined}, 600);
+            expect(mocks.post.mock.calls[0][2]).toEqual({message: false});
+        });
+    });
+
+    describe('handle_approve_scraper', ()=>{
+        it('resumes (message:true) and polls to done, emits run next_step',
+            async()=>{
+            mocks.post.mockResolvedValueOnce({ok: true});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: ['patch']},
+                attempts: 2,
+            });
+            await handle_approve_scraper('c_abc',
+                {url: 'https://x.com/p/1', output: 'approve.json'});
+            expect(mocks.post).toHaveBeenCalledWith(
+                'api_key',
+                '/dca/collectors/c_abc/resume_automation_job',
+                {message: true},
+                expect.objectContaining({hints: SCRAPER_BODY_HINTS})
+            );
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    collector_id: 'c_abc',
+                    status: 'done',
+                    next_step: 'bdata scraper run c_abc https://x.com/p/1',
+                }),
+                expect.objectContaining({output: 'approve.json'})
+            );
+        });
+
+        it('--reject sends message:false and reports rejected', async()=>{
+            mocks.post.mockResolvedValueOnce({ok: true});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: []},
+                attempts: 1,
+            });
+            await handle_approve_scraper('c_abc',
+                {reject: true, output: 'approve.json'});
+            expect(mocks.post.mock.calls[0][2]).toEqual({message: false});
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({status: 'rejected'}),
+                expect.objectContaining({output: 'approve.json'})
+            );
+        });
+
+        it('re-gates: poll returns pending_answer again → '
+            +'awaiting_approval (re-runnable)', async()=>{
+            mocks.post.mockResolvedValueOnce({ok: true});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'pending_answer',
+                    completed_steps: ['code_fixer'],
+                    preview_result: [{title: 't'}], diff: {}},
+                attempts: 3,
+            });
+            await handle_approve_scraper('c_abc',
+                {url: 'https://x.com/p/1', output: 'approve.json'});
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    status: 'awaiting_approval',
+                    next_step:
+                        'bdata scraper approve c_abc --url https://x.com/p/1',
+                }),
+                expect.objectContaining({output: 'approve.json'})
+            );
+        });
+
+        it('fails fast on an invalid --url (no resume call)', async()=>{
+            await expect(
+                handle_approve_scraper('c_abc', {url: 'not-a-url'}))
+                .rejects.toThrow(/url/i);
+            expect(mocks.post).not.toHaveBeenCalled();
+        });
+
+        it('emits resume_failed + recovery note + exit 1 when resume '
+            +'fails', async()=>{
+            mocks.post.mockRejectedValueOnce(
+                new Error('{"error":"job not awaiting approval"}'));
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_approve_scraper('c_abc', {output: 'approve.json'});
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    collector_id: 'c_abc',
+                    status: 'resume_failed',
+                }),
+                expect.objectContaining({output: 'approve.json'})
+            );
+            expect(exit).toHaveBeenCalledWith(1);
+            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            expect(msg).toMatch(/unchanged|still works/i);
+            exit.mockRestore();
+            error.mockRestore();
+        });
+
+        it('emits poll_failed + recovery note on poll timeout', async()=>{
+            mocks.post.mockResolvedValueOnce({ok: true});
+            mocks.poll_until.mockRejectedValue(
+                new Error('Timeout after 600 seconds waiting for heal'));
+            const exit = vi.spyOn(process, 'exit')
+                .mockImplementation(()=>undefined as never);
+            const error = vi.spyOn(console, 'error')
+                .mockImplementation(()=>{});
+            await handle_approve_scraper('c_abc', {output: 'approve.json'});
+            expect(mocks.print).toHaveBeenCalledWith(
+                expect.objectContaining({status: 'poll_failed'}),
+                expect.objectContaining({output: 'approve.json'})
+            );
+            expect(exit).toHaveBeenCalledWith(1);
+            exit.mockRestore();
+            error.mockRestore();
+        });
+    });
+
     describe('handle_run_scraper multi-URL', ()=>{
         let fetch_spy: ReturnType<typeof vi.spyOn>;
         let tmp_dir: string;
@@ -1449,6 +2093,54 @@ describe('commands/scraper', ()=>{
                 /\/dca\/trigger_immediate\?collector=c_abc/);
             expect(mocks.post.mock.calls[0][2]).toEqual(
                 {url: 'https://only.com'});
+        });
+    });
+
+    describe('heal_subcommand wiring', ()=>{
+        it('is registered on scraper_command with required args', ()=>{
+            const heal = scraper_command.commands
+                .find(c=>c.name()=='heal');
+            expect(heal).toBeDefined();
+            expect(heal!.usage()).toMatch(/<collector_id>/);
+            expect(heal!.usage()).toMatch(/<prompt>/);
+        });
+
+        it('exposes --url, --timeout, --max-retries, --no-retry', ()=>{
+            const heal = scraper_command.commands
+                .find(c=>c.name()=='heal')!;
+            const flags = heal.options.map(o=>o.long);
+            expect(flags).toContain('--url');
+            expect(flags).toContain('--timeout');
+            expect(flags).toContain('--max-retries');
+            expect(flags).toContain('--no-retry');
+        });
+    });
+
+    describe('approve_subcommand wiring', ()=>{
+        it('is registered on scraper_command with a required '
+            +'collector_id', ()=>{
+            const approve = scraper_command.commands
+                .find(c=>c.name()=='approve');
+            expect(approve).toBeDefined();
+            expect(approve!.usage()).toMatch(/<collector_id>/);
+        });
+
+        it('exposes --reject, --url, --timeout but NOT retry flags', ()=>{
+            const approve = scraper_command.commands
+                .find(c=>c.name()=='approve')!;
+            const flags = approve.options.map(o=>o.long);
+            expect(flags).toContain('--reject');
+            expect(flags).toContain('--url');
+            expect(flags).toContain('--timeout');
+            expect(flags).not.toContain('--max-retries');
+            expect(flags).not.toContain('--no-retry');
+        });
+
+        it('heal exposes --auto-approve', ()=>{
+            const heal = scraper_command.commands
+                .find(c=>c.name()=='heal')!;
+            expect(heal.options.map(o=>o.long))
+                .toContain('--auto-approve');
         });
     });
 });
