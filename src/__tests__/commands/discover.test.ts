@@ -32,6 +32,7 @@ vi.mock('../../utils/output', ()=>({
     print_table: mocks.print_table,
     fail: mocks.fail,
     dim: mocks.dim,
+    is_tty: true,
 }));
 
 vi.mock('../../utils/polling', ()=>({

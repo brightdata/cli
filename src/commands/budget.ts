@@ -47,7 +47,6 @@ const add_common_options = (cmd: Command): Command=>{
     cmd.option('--json', 'Force JSON output')
     cmd.option('--pretty', 'Pretty-print JSON output')
     cmd.option('--timing', 'Show request timing')
-    cmd.option('-k, --api-key <key>', 'Override API key')
     return cmd
 }
 

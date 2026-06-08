@@ -63,7 +63,7 @@ describe('commands/scrape', ()=>{
                     format: 'raw',
                     data_format: 'markdown',
                 },
-                {timing: undefined}
+                {timing: undefined, raw_buffer: false}
             );
             expect(mocks.print).toHaveBeenCalledWith(
                 '# hello',
@@ -82,7 +82,7 @@ describe('commands/scrape', ()=>{
                 url: 'https://example.com',
                 format: 'json',
             },
-            {timing: undefined}
+            {timing: undefined, raw_buffer: false}
         );
         expect(mocks.print).toHaveBeenCalledWith(
             {status: 200, body: '{}', headers: {}},

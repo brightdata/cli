@@ -380,6 +380,7 @@ describe('browser/daemon', ()=>{
         const request = {
             method: ()=> 'GET',
             url: ()=> 'https://example.com/',
+            resourceType: ()=> 'document',
         };
         page.emit('request', request);
         page.emit('response', new Mock_response(request, 200));

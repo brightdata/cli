@@ -827,9 +827,7 @@ const create_session_command = (
 
 const create_browser_command = ()=>{
     const browser = new Command('browser')
-        .description('Control Bright Data browser sessions')
-        .option('-k, --api-key <key>', 'Override API key')
-        .option('-o, --output <path>', 'Write output to file')
+        .description('Control Bright Data browser sessions')        .option('-o, --output <path>', 'Write output to file')
         .option('--json', 'Force JSON output')
         .option('--pretty', 'Pretty-print JSON output')
         .option(

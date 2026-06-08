@@ -119,7 +119,6 @@ const status_command = new Command('status')
     .option('--json', 'Force JSON output')
     .option('--pretty', 'Pretty-print JSON output')
     .option('--timing', 'Show request timing')
-    .option('-k, --api-key <key>', 'Override API key')
     .action(handle_status);
 
 export {status_command, handle_status};
