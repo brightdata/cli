@@ -45,6 +45,7 @@
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Authentication](#authentication)
+- [Free Tier](#free-tier)
 - [Commands](#commands)
   - [init](#init)
   - [scrape](#scrape)
@@ -149,6 +150,29 @@ brightdata logout
 ```
 
 `brightdata add mcp` uses the API key stored by `brightdata login`. It does not currently read `BRIGHTDATA_API_KEY` or the global `--api-key` flag, so log in first before using it.
+
+---
+
+## Free Tier
+
+Every new Bright Data account includes a recurring monthly free tier — no credit card or commitment required to start. See the [Free Tier docs](https://docs.brightdata.com/general/account/billing-and-pricing/free-tier) for full details.
+
+**5,000 free credits per month** (≈ $7.50), renewing on the 1st of each month. Unused credits don't roll over.
+
+These credits cover the products most CLI commands use:
+
+| Product | CLI commands | Credit cost |
+|---|---|---|
+| **Unlocker API** | `scrape` | 1 credit / request |
+| **SERP API** | `search` | 1 credit / request |
+| **Web Scraper API** | `pipelines` | 1 credit / request |
+| **Scraper Studio** | `scraper create` / `run` / `heal` | 1 credit / page load (shared pool, not per record) |
+
+**Not** included in the monthly free credits: proxy products (Datacenter, ISP, Residential) and the **Browser API** (`brightdata browser`). These get a separate one-time **$2 trial** (valid 7 days), plus a **$5 bonus** when you add a payment method (valid 30 days).
+
+> Adding a credit card is a verification step only — you are not charged unless your free credits are exhausted **and** you have funds deposited. Accounts on custom pay-as-you-go or pre-commit subscription plans don't receive the recurring monthly free credits.
+
+Check your remaining balance any time with [`brightdata budget`](#budget).
 
 ---
 
