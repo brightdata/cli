@@ -1,6 +1,6 @@
 import {checkbox, confirm, select} from '@inquirer/prompts';
 import {Command} from 'commander';
-import {get_api_key} from '../utils/credentials';
+import {resolve_key} from '../utils/auth';
 import {dim, green, red, warn} from '../utils/output';
 import {
     Invalid_mcp_config_error,
@@ -15,6 +15,7 @@ type Add_mcp_opts = {
     agent?: string;
     global?: boolean;
     project?: boolean;
+    apiKey?: string;
 };
 
 type Mcp_writers = {
@@ -267,7 +268,7 @@ const run_add_mcp = async(
     opts: Add_mcp_opts = {},
     writers: Mcp_writers = default_writers
 )=>{
-    const api_key = get_api_key();
+    const api_key = resolve_key(opts.apiKey);
     if (api_key == null)
     {
         process.stderr.write('Not logged in. Run '+backtick
@@ -314,8 +315,7 @@ const add_mcp_command = new Command('mcp')
     .option('--agent <agents>',
         'Comma-separated: claude-code,cursor,codex')
     .option('--global', 'Install to global config')
-    .option('--project', 'Install to project config')
-    .action(async(opts: Add_mcp_opts)=>{
+    .option('--project', 'Install to project config')    .action(async(opts: Add_mcp_opts)=>{
         await run_add_mcp(opts);
     });
 

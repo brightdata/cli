@@ -181,9 +181,7 @@ const discover_command = new Command('discover')
     .option('-o, --output <path>', 'Write output to file')
     .option('--json', 'Force JSON output')
     .option('--pretty', 'Pretty-print JSON output')
-    .option('--timing', 'Show request timing')
-    .option('-k, --api-key <key>', 'Override API key')
-    .action(handle_discover);
+    .option('--timing', 'Show request timing')    .action(handle_discover);
 
 add_examples(discover_command, [
     {

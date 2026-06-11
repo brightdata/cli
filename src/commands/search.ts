@@ -278,7 +278,6 @@ const search_command = new Command('search')
     .option('--json', 'Force JSON output')
     .option('--pretty', 'Pretty-print JSON output')
     .option('--timing', 'Show request timing')
-    .option('-k, --api-key <key>', 'Override API key')
     .action(handle_search);
 
 add_examples(search_command, [

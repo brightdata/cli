@@ -103,9 +103,7 @@ const scrape_command = new Command('scrape')
     .option('-o, --output <path>', 'Write output to file')
     .option('--json', 'Force JSON output')
     .option('--pretty', 'Pretty-print JSON output')
-    .option('--timing', 'Show request timing')
-    .option('-k, --api-key <key>', 'Override API key')
-    .action(handle_scrape);
+    .option('--timing', 'Show request timing')    .action(handle_scrape);
 
 add_examples(scrape_command, [
     {
