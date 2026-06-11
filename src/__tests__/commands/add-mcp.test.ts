@@ -14,10 +14,12 @@ const mocks = vi.hoisted(()=>({
     warn: vi.fn(),
 }));
 
-vi.mock('@inquirer/prompts', ()=>({
-    checkbox: mocks.checkbox,
-    select: mocks.select,
-    confirm: mocks.confirm,
+vi.mock('../../utils/load-prompts', ()=>({
+    load_prompts: vi.fn(async()=>({
+        checkbox: mocks.checkbox,
+        select: mocks.select,
+        confirm: mocks.confirm,
+    })),
 }));
 
 vi.mock('../../utils/credentials', ()=>({
@@ -133,6 +135,11 @@ describe('commands/add-mcp', ()=>{
 
         fs.mkdirSync(path.dirname(cursor_config), {recursive: true});
         fs.writeFileSync(cursor_config, '{invalid-json');
+        // macOS resolves os.tmpdir() (/var/...) to its realpath
+        // (/private/var/...); the code reports the resolved path, so the
+        // expectation must compare against that, not the raw join.
+        const real_cursor_config = path.join(
+            fs.realpathSync(path.dirname(cursor_config)), 'mcp.json');
         mocks.checkbox.mockResolvedValue(['cursor']);
         mocks.select.mockResolvedValue('project');
         mocks.confirm.mockResolvedValue(true);
@@ -140,10 +147,10 @@ describe('commands/add-mcp', ()=>{
         await run_add_mcp();
 
         expect(mocks.warn).toHaveBeenCalledWith(
-            expect.stringContaining('Invalid JSON in '+cursor_config)
+            expect.stringContaining('Invalid JSON in '+real_cursor_config)
         );
         expect(mocks.confirm).toHaveBeenCalledWith({
-            message: 'Overwrite invalid config at '+cursor_config+'?',
+            message: 'Overwrite invalid config at '+real_cursor_config+'?',
             default: false,
         });
         expect(read_json(cursor_config)).toEqual({

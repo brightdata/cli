@@ -7,5 +7,6 @@ dist/
 coverage/
 *.log
 .DS_Store
-*.md 
+*.md
 !README.md
+!CONTRIBUTING.md
