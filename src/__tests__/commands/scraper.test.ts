@@ -1871,6 +1871,43 @@ describe('commands/scraper', ()=>{
                 {timing: undefined}, 600);
             expect(mocks.post.mock.calls[0][2]).toEqual({message: false});
         });
+
+        it('adds auto_save:true to the body when approving with '
+            +'autoSave set', async()=>{
+            mocks.post.mockResolvedValueOnce({ok: true});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: []},
+                attempts: 1,
+            });
+            await resume_and_poll('api_key', 'c_abc', true,
+                {timing: undefined, autoSave: true}, 600);
+            expect(mocks.post.mock.calls[0][2]).toEqual({
+                message: true, auto_save: true,
+            });
+        });
+
+        it('omits auto_save when approving without autoSave', async()=>{
+            mocks.post.mockResolvedValueOnce({ok: true});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: []},
+                attempts: 1,
+            });
+            await resume_and_poll('api_key', 'c_abc', true,
+                {timing: undefined}, 600);
+            expect(mocks.post.mock.calls[0][2]).toEqual({message: true});
+        });
+
+        it('never sends auto_save on reject, even if autoSave set',
+            async()=>{
+            mocks.post.mockResolvedValueOnce({ok: true});
+            mocks.poll_until.mockResolvedValue({
+                result: {status: 'done', completed_steps: []},
+                attempts: 1,
+            });
+            await resume_and_poll('api_key', 'c_abc', false,
+                {timing: undefined, autoSave: true}, 600);
+            expect(mocks.post.mock.calls[0][2]).toEqual({message: false});
+        });
     });
 
     describe('handle_approve_scraper', ()=>{
@@ -2141,6 +2178,20 @@ describe('commands/scraper', ()=>{
                 .find(c=>c.name()=='heal')!;
             expect(heal.options.map(o=>o.long))
                 .toContain('--auto-approve');
+        });
+
+        it('approve exposes --auto-save', ()=>{
+            const approve = scraper_command.commands
+                .find(c=>c.name()=='approve')!;
+            expect(approve.options.map(o=>o.long))
+                .toContain('--auto-save');
+        });
+
+        it('heal exposes --auto-save', ()=>{
+            const heal = scraper_command.commands
+                .find(c=>c.name()=='heal')!;
+            expect(heal.options.map(o=>o.long))
+                .toContain('--auto-save');
         });
     });
 });

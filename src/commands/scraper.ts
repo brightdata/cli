@@ -501,13 +501,18 @@ const resume_and_poll = async(
     api_key: string,
     collector_id: string,
     approve: boolean,
-    opts: {timing?: boolean},
+    opts: {timing?: boolean; autoSave?: boolean},
     timeout: number
 ): Promise<Poll_result<Ai_progress_response>>=>{
+    // auto_save only takes effect on approval (message:true); the API
+    // ignores it on reject, so we omit it there to keep the body minimal.
+    const resume_body = approve && opts.autoSave
+        ? {message: approve, auto_save: true}
+        : {message: approve};
     await post<unknown>(
         api_key,
         `/dca/collectors/${collector_id}/${RESUME_JOB_PATH}`,
-        {message: approve},
+        resume_body,
         {timing: opts.timing, hints: SCRAPER_BODY_HINTS}
     );
     return poll_until<Ai_progress_response>({
@@ -1380,6 +1385,9 @@ const heal_subcommand = new Command('heal')
     .option('--auto-approve',
         'When the heal hits the approval gate, approve it automatically '
         +'and poll through to done (default: stop and let you review).')
+    .option('--auto-save',
+        'With --auto-approve, also save the healed template automatically '
+        +'once the job completes (sent as auto_save to the resume call).')
     .option('--timeout <seconds>',
         'Polling timeout in seconds (default: 600)')
     .option('--max-retries <n>',
@@ -1422,6 +1430,9 @@ const approve_subcommand = new Command('approve')
         'Collector ID of the scraper whose heal is awaiting approval')
     .option('--reject',
         'Reject the proposed fix instead of approving it.')
+    .option('--auto-save',
+        'Save the approved template automatically once the job completes '
+        +'successfully (sent as auto_save to the resume call).')
     .option('--url <url>',
         'Verify target woven into the next-step hint on success.')
     .option('--timeout <seconds>',
