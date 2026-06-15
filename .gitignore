@@ -9,6 +9,7 @@ coverage/
 .DS_Store
 *.md
 !README.md
+!CONTRIBUTING.md
 
 # Local-only agent context files (never commit — local knowledge base)
 CLAUDE.md

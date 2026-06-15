@@ -14,10 +14,12 @@ const mocks = vi.hoisted(()=>({
     warn: vi.fn(),
 }));
 
-vi.mock('@inquirer/prompts', ()=>({
-    checkbox: mocks.checkbox,
-    select: mocks.select,
-    confirm: mocks.confirm,
+vi.mock('../../utils/load-prompts', ()=>({
+    load_prompts: vi.fn(async()=>({
+        checkbox: mocks.checkbox,
+        select: mocks.select,
+        confirm: mocks.confirm,
+    })),
 }));
 
 vi.mock('../../utils/credentials', ()=>({

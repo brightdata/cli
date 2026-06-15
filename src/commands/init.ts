@@ -1,5 +1,5 @@
 import {Command} from 'commander';
-import {confirm, input, password, select} from '@inquirer/prompts';
+import {load_prompts} from '../utils/load-prompts';
 import {validate_key, mask_key, resolve_key} from '../utils/auth';
 import {get_api_key, save as save_credentials} from '../utils/credentials';
 import {resolve, get as get_config, set as set_config} from '../utils/config';
@@ -97,6 +97,7 @@ const prompt_zone = async(
 ): Promise<string|undefined>=>{
     if (!is_tty)
         return suggested;
+    const {input, select} = await load_prompts();
     if (!zone_names.length)
     {
         const typed = (await input({
@@ -131,6 +132,7 @@ const prompt_default_format = async(current: string|undefined):
     Promise<string>=>{
     if (!is_tty)
         return current ?? 'markdown';
+    const {select} = await load_prompts();
     const selected = await select({
         message: 'Choose default output format',
         choices: [
@@ -163,6 +165,7 @@ const prompt_api_key = async(
 ): Promise<string|undefined>=>{
     if (!is_tty)
         return initial;
+    const {confirm, password} = await load_prompts();
     if (initial)
     {
         const reuse = await confirm({
@@ -238,6 +241,7 @@ const show_quick_start = (
 const maybe_show_install_hint = async()=>{
     if (!is_tty)
         return;
+    const {confirm} = await load_prompts();
     const show = await confirm({
         message: 'Show global install command?',
         default: false,
@@ -289,6 +293,7 @@ const handle_init = async(opts: Init_opts)=>{
     serp_zone = pick_best_zone(zone_names, serp_zone ?? unlocker_zone);
     if (is_tty)
     {
+        const {confirm} = await load_prompts();
         unlocker_zone = await prompt_zone(
             'Select default Web Unlocker zone',
             zone_names,
