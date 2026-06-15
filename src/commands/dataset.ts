@@ -303,7 +303,6 @@ const pipelines_command = new Command('pipelines')
     .option('--json', 'Force JSON output')
     .option('--pretty', 'Pretty-print JSON output')
     .option('--timing', 'Show request timing')
-    .option('-k, --api-key <key>', 'Override API key')
     .action(handle_pipelines);
 
 add_examples(pipelines_command, [

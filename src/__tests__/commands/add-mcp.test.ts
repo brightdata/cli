@@ -57,6 +57,7 @@ describe('commands/add-mcp', ()=>{
     let original_cwd = '';
     let stdin_tty: PropertyDescriptor|undefined;
     let stdout_tty: PropertyDescriptor|undefined;
+    let original_api_key_env: string|undefined;
 
     beforeEach(()=>{
         vi.clearAllMocks();
@@ -72,6 +73,11 @@ describe('commands/add-mcp', ()=>{
         fs.mkdirSync(project_dir, {recursive: true});
         process.chdir(project_dir);
         process.env['CODEX_HOME'] = codex_home;
+        // Isolate from a real key in the environment: add-mcp now resolves the
+        // key via flag -> env -> stored credentials, so env must be cleared for
+        // the mocked credential to take effect.
+        original_api_key_env = process.env['BRIGHTDATA_API_KEY'];
+        delete process.env['BRIGHTDATA_API_KEY'];
         vi.spyOn(os, 'homedir').mockReturnValue(home_dir);
         Object.defineProperty(process.stdin, 'isTTY', {
             value: true,
@@ -96,6 +102,10 @@ describe('commands/add-mcp', ()=>{
         if (stdout_tty)
             Object.defineProperty(process.stdout, 'isTTY', stdout_tty);
         delete process.env['CODEX_HOME'];
+        if (original_api_key_env === undefined)
+            delete process.env['BRIGHTDATA_API_KEY'];
+        else
+            process.env['BRIGHTDATA_API_KEY'] = original_api_key_env;
         vi.restoreAllMocks();
         if (tmp_dir)
             fs.rmSync(tmp_dir, {recursive: true, force: true});
@@ -131,15 +141,13 @@ describe('commands/add-mcp', ()=>{
     });
 
     it('warns and overwrites invalid JSON after confirmation', async()=>{
-        const cursor_config = path.join(project_dir, '.cursor', 'mcp.json');
+        // The product resolves project-scope paths via process.cwd(), which is
+        // canonicalized (e.g. /var -> /private/var on macOS). Build the expected
+        // path the same way so string assertions are not platform-fragile.
+        const cursor_config = path.join(process.cwd(), '.cursor', 'mcp.json');
 
         fs.mkdirSync(path.dirname(cursor_config), {recursive: true});
         fs.writeFileSync(cursor_config, '{invalid-json');
-        // macOS resolves os.tmpdir() (/var/...) to its realpath
-        // (/private/var/...); the code reports the resolved path, so the
-        // expectation must compare against that, not the raw join.
-        const real_cursor_config = path.join(
-            fs.realpathSync(path.dirname(cursor_config)), 'mcp.json');
         mocks.checkbox.mockResolvedValue(['cursor']);
         mocks.select.mockResolvedValue('project');
         mocks.confirm.mockResolvedValue(true);
@@ -147,10 +155,10 @@ describe('commands/add-mcp', ()=>{
         await run_add_mcp();
 
         expect(mocks.warn).toHaveBeenCalledWith(
-            expect.stringContaining('Invalid JSON in '+real_cursor_config)
+            expect.stringContaining('Invalid JSON in '+cursor_config)
         );
         expect(mocks.confirm).toHaveBeenCalledWith({
-            message: 'Overwrite invalid config at '+real_cursor_config+'?',
+            message: 'Overwrite invalid config at '+cursor_config+'?',
             default: false,
         });
         expect(read_json(cursor_config)).toEqual({

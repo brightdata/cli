@@ -21,7 +21,9 @@ const mocks = vi.hoisted(()=>({
     success: vi.fn(),
 }));
 
-vi.mock('fs', ()=>({
+// Mock the `node:` specifier — vitest 4 normalizes node builtins, so this also
+// intercepts `import fs from 'fs'` and avoids Vite's bare-'fs' resolver error.
+vi.mock('node:fs', ()=>({
     default: {
         existsSync: mocks.existsSync,
         readdirSync: mocks.readdirSync,
@@ -93,9 +95,7 @@ describe('commands/browser', ()=>{
         mocks.start.mockReturnValue({stop: mocks.stop});
     });
 
-    // TODO: skipped — code now sends {url, cdp_endpoint}; test still expects
-    // {url} (mock-drift, not a product bug); re-triage and re-enable.
-    it.skip('opens a URL by resolving credentials, ensuring the daemon, and navigating', async()=>{
+    it('opens a URL by resolving credentials, ensuring the daemon, and navigating', async()=>{
         mocks.send_command.mockResolvedValue({
             success: true,
             data: {
@@ -126,7 +126,10 @@ describe('commands/browser', ()=>{
             'default',
             expect.objectContaining({
                 action: 'navigate',
-                params: {url: 'https://example.com'},
+                params: {
+                    url: 'https://example.com',
+                    cdp_endpoint: 'wss://browser.example',
+                },
             }),
             {daemon_dir: undefined, timeout_ms: undefined}
         );
@@ -178,9 +181,7 @@ describe('commands/browser', ()=>{
         );
     });
 
-    // TODO: skipped — assertion drifted from current code (mock-drift, not a
-    // product bug); re-triage and re-enable.
-    it.skip('prints snapshot text for an active browser session with extended snapshot params', async()=>{
+    it('prints snapshot text for an active browser session with extended snapshot params', async()=>{
         mocks.send_command.mockResolvedValue({
             success: true,
             data: {
@@ -211,6 +212,7 @@ describe('commands/browser', ()=>{
                     depth: 1,
                     interactive: false,
                     selector: '#checkout',
+                    wrap: false,
                 },
             }),
             {daemon_dir: undefined, timeout_ms: undefined}
@@ -340,9 +342,7 @@ describe('commands/browser', ()=>{
         expect(mocks.success).toHaveBeenCalledWith('Closed 2 browser sessions.');
     });
 
-    // TODO: skipped — assertion drifted from current code (mock-drift, not a
-    // product bug); re-triage and re-enable.
-    it.skip('parses browser-group flags for open and forwards them to the handler flow', async()=>{
+    it('parses browser-group flags for open and forwards them to the handler flow', async()=>{
         mocks.send_command.mockResolvedValue({
             success: true,
             data: {
@@ -388,7 +388,10 @@ describe('commands/browser', ()=>{
             'shop',
             expect.objectContaining({
                 action: 'navigate',
-                params: {url: 'https://example.com'},
+                params: {
+                    url: 'https://example.com',
+                    cdp_endpoint: 'wss://browser.example',
+                },
             }),
             {daemon_dir: undefined, timeout_ms: 1234}
         );
@@ -437,9 +440,7 @@ describe('commands/browser', ()=>{
         );
     });
 
-    // TODO: skipped — assertion drifted from current code (mock-drift, not a
-    // product bug); re-triage and re-enable.
-    it.skip('parses snapshot flags and forwards the full snapshot param set', async()=>{
+    it('parses snapshot flags and forwards the full snapshot param set', async()=>{
         mocks.send_command.mockResolvedValue({
             success: true,
             data: {
@@ -477,6 +478,7 @@ describe('commands/browser', ()=>{
                     depth: 2,
                     interactive: true,
                     selector: '#checkout',
+                    wrap: false,
                 },
             }),
             {daemon_dir: undefined, timeout_ms: undefined}

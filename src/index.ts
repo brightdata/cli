@@ -18,6 +18,7 @@ import {browser_command} from './commands/browser';
 import {add_mcp_command} from './commands/add-mcp';
 import {discover_command} from './commands/discover';
 import {scraper_command} from './commands/scraper';
+import {register_global_option_propagation} from './utils/global-opts';
 import packageJson from '../package.json';
 
 const build_program = ()=>{
@@ -52,6 +53,10 @@ const build_program = ()=>{
     program.addCommand(discover_command);
     program.addCommand(scraper_command);
     program.addCommand(add_command);
+
+    // Make program-level options (e.g. -k/--api-key) honored when passed in the
+    // global position, not just when repeated on the subcommand. Local wins.
+    register_global_option_propagation(program);
 
     return program;
 };

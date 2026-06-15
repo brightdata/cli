@@ -1291,9 +1291,7 @@ const create_subcommand = new Command('create')
         'Emit the bare AI-progress payload (pre-v0.3 shape) instead '
         +'of the new {collector_id, name, status, ...} envelope. '
         +'For one-version migration only.')
-    .option('--timing', 'Show request timing')
-    .option('-k, --api-key <key>', 'Override API key')
-    .action(handle_create_scraper);
+    .option('--timing', 'Show request timing')    .action(handle_create_scraper);
 
 const run_subcommand = new Command('run')
     .description(
@@ -1323,9 +1321,7 @@ const run_subcommand = new Command('run')
     .option('-o, --output <path>', 'Write output to file')
     .option('--json', 'Force JSON output')
     .option('--pretty', 'Pretty-print JSON output')
-    .option('--timing', 'Show request timing')
-    .option('-k, --api-key <key>', 'Override API key')
-    .action(handle_run_scraper);
+    .option('--timing', 'Show request timing')    .action(handle_run_scraper);
 
 add_examples(create_subcommand, [
     {
@@ -1399,9 +1395,7 @@ const heal_subcommand = new Command('heal')
     .option('--legacy-output',
         'Emit the bare AI-progress payload instead of the '
         +'{collector_id, status, prompt, next_step, ...} envelope.')
-    .option('--timing', 'Show request timing')
-    .option('-k, --api-key <key>', 'Override API key')
-    .action(handle_heal_scraper);
+    .option('--timing', 'Show request timing')    .action(handle_heal_scraper);
 
 add_examples(heal_subcommand, [
     {
@@ -1437,9 +1431,7 @@ const approve_subcommand = new Command('approve')
     .option('--pretty', 'Pretty-print JSON output')
     .option('--legacy-output',
         'Emit the bare AI-progress payload instead of the envelope.')
-    .option('--timing', 'Show request timing')
-    .option('-k, --api-key <key>', 'Override API key')
-    .action(handle_approve_scraper);
+    .option('--timing', 'Show request timing')    .action(handle_approve_scraper);
 
 add_examples(approve_subcommand, [
     {

@@ -350,9 +350,7 @@ describe('browser/daemon', ()=>{
             .toBe(DEFAULT_DAEMON_IDLE_TIMEOUT_MS);
     });
 
-    // TODO: skipped — assertion drifted from current code (mock-drift, not a
-    // product bug); re-triage and re-enable.
-    it.skip('connects, navigates, and tracks network requests', async()=>{
+    it('connects, navigates, and tracks network requests', async()=>{
         const mock_browser = new Mock_browser();
         const connect_over_cdp = vi.fn(async()=>mock_browser as unknown as Browser);
         const daemon = new BrowserDaemon({
@@ -382,6 +380,7 @@ describe('browser/daemon', ()=>{
         const request = {
             method: ()=> 'GET',
             url: ()=> 'https://example.com/',
+            resourceType: ()=> 'document',
         };
         page.emit('request', request);
         page.emit('response', new Mock_response(request, 200));

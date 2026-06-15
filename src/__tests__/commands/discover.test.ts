@@ -32,6 +32,7 @@ vi.mock('../../utils/output', ()=>({
     print_table: mocks.print_table,
     fail: mocks.fail,
     dim: mocks.dim,
+    is_tty: true,
 }));
 
 vi.mock('../../utils/polling', ()=>({
@@ -177,9 +178,7 @@ describe('commands/discover', ()=>{
     });
 
     describe('handle_discover', ()=>{
-        // TODO: skipped — test-setup drift (non-TTY takes the print branch,
-        // not print_table); re-triage and re-enable. Not a product bug.
-        it.skip('triggers and polls then prints table', async()=>{
+        it('triggers and polls then prints table', async()=>{
             mocks.post.mockResolvedValue({status: 'ok', task_id: 'abc123'});
             mocks.poll_until.mockResolvedValue({
                 result: {
