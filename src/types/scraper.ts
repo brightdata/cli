@@ -130,6 +130,7 @@ type Scraper_heal_opts = {
     maxRetries?: string;
     retry?: boolean;
     autoApprove?: boolean;
+    autoSave?: boolean;
 };
 
 type Scraper_approve_opts = {
@@ -142,6 +143,7 @@ type Scraper_approve_opts = {
     timing?: boolean;
     apiKey?: string;
     legacyOutput?: boolean;
+    autoSave?: boolean;
 };
 
 export type {
