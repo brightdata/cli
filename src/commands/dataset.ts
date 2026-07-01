@@ -323,4 +323,16 @@ add_examples(pipelines_command, [
     },
 ]);
 
-export {pipelines_command, handle_pipelines};
+export {
+    pipelines_command,
+    handle_pipelines,
+    DATASET_IDS,
+    resolve_dataset_type,
+    resolve_format,
+    strip_nulls,
+    extract_status,
+    TRIGGER_ENDPOINT,
+    SNAPSHOT_ENDPOINT,
+    RUNNING_STATUSES,
+};
+export type {Dataset_type};
