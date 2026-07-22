@@ -113,7 +113,7 @@ const status_command = new Command('status')
     .argument('<job-id>', 'Snapshot ID returned by trigger request')
     .option('--wait', 'Poll until the job is complete')
     .option('--timeout <seconds>',
-        'Polling timeout in seconds (default: 600 or' +
+        'Polling timeout in seconds (default: 600 or ' +
         'BRIGHTDATA_POLLING_TIMEOUT)')
     .option('-o, --output <path>', 'Write output to file')
     .option('--json', 'Force JSON output')
