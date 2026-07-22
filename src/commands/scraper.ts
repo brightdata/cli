@@ -231,6 +231,44 @@ const format_create_summary = (
 const clean_error_message = (msg: string): string=>
     msg.split('\n')[0].replace(/^Error:\s*/, '').trim();
 
+// Error output for the `run` command. When the caller asked for machine
+// output (--json / --pretty), a failed run must return a parseable error
+// object on stdout, not a plain-text line on stderr, so an agent reading
+// stdout still gets something it can JSON.parse. Without those flags the
+// behaviour (a red line on stderr) is unchanged.
+const format_run_error = (
+    msg: string,
+    opts: {json?: boolean; pretty?: boolean}
+): {json: boolean; text: string}=>{
+    if (opts.json || opts.pretty)
+    {
+        const payload = {error: clean_error_message(msg)};
+        return {
+            json: true,
+            text: opts.pretty
+                ? JSON.stringify(payload, null, 2)
+                : JSON.stringify(payload),
+        };
+    }
+    return {json: false, text: msg};
+};
+
+const run_fail = (
+    msg: string,
+    opts: {json?: boolean; pretty?: boolean}
+): void=>{
+    const out = format_run_error(msg, opts);
+    if (out.json)
+    {
+        process.stdout.write(out.text+'\n');
+        process.exit(1);
+        return;
+    }
+    // Non-machine output: reuse the shared fail() (red ✗ line on stderr +
+    // exit 1), so every run error is formatted consistently.
+    fail(out.text);
+};
+
 const build_create_envelope = (params: {
     collector_id: string;
     name: string;
@@ -1033,7 +1071,7 @@ const run_batch = async(
     try {
         timeout = parse_timeout(timeout_raw);
     } catch(e) {
-        fail((e as Error).message);
+        run_fail((e as Error).message, opts);
         return;
     }
     if (reason == 'page_limit_fallback')
@@ -1060,10 +1098,9 @@ const run_batch = async(
         trigger_spinner.stop();
         if (!trigger.collection_id)
         {
-            console.error(
+            run_fail(
                 `Failed to submit batch job (collector ${collector_id}): `
-                +'missing collection_id.');
-            process.exit(1);
+                +'missing collection_id.', opts);
             return;
         }
         collection_id = trigger.collection_id;
@@ -1073,10 +1110,9 @@ const run_batch = async(
             `Batch job: ${collection_id}${eta}`));
     } catch(e) {
         trigger_spinner.stop();
-        console.error(
+        run_fail(
             `Failed to submit batch job (collector ${collector_id}): `
-            +`${(e as Error).message}`);
-        process.exit(1);
+            +`${(e as Error).message}`, opts);
         return;
     }
     const poll_spinner = start_spinner('Collecting (batch)...');
@@ -1105,8 +1141,7 @@ const run_batch = async(
         const msg = (e as Error).message;
         const suffix = msg.includes(collection_id)
             ? '' : ` (collection_id ${collection_id})`;
-        console.error(`${msg}${suffix}`);
-        process.exit(1);
+        run_fail(`${msg}${suffix}`, opts);
         return;
     }
 };
@@ -1121,17 +1156,18 @@ const handle_run_scraper = async(
     try {
         urls = resolve_run_inputs(url, opts);
     } catch(e) {
-        fail((e as Error).message);
+        run_fail((e as Error).message, opts);
         return;
     }
     if (urls.length > 1)
     {
         if (opts.sync)
         {
-            fail(
+            run_fail(
                 '--sync cannot be combined with --urls / --input-file. '
                 +'The /dca/crawl endpoint accepts only a single URL. '
-                +'Drop --sync to use the batch endpoint (/dca/trigger).');
+                +'Drop --sync to use the batch endpoint (/dca/trigger).',
+            opts);
             return;
         }
         await run_batch(api_key, collector_id, urls, opts, 'multi_url');
@@ -1144,7 +1180,7 @@ const handle_run_scraper = async(
         try {
             sync_timeout = parse_sync_timeout(opts.syncTimeout);
         } catch(e) {
-            fail((e as Error).message);
+            run_fail((e as Error).message, opts);
             return;
         }
         const query = build_run_query(collector_id, opts,
@@ -1162,21 +1198,19 @@ const handle_run_scraper = async(
                 const parsed = parse_result_body(res.body) as
                     {response_id?: string; message?: string};
                 const rid = parsed?.response_id ?? '<unknown>';
-                console.error(
+                run_fail(
                     `Sync request timed out server-side after `
                     +`${sync_timeout}s (response_id: ${rid}). `
-                    +'Re-run without --sync to poll for results.'
-                );
-                process.exit(1);
+                    +'Re-run without --sync to poll for results.',
+                opts);
                 return;
             }
             if (res.status < 200 || res.status >= 300)
             {
-                console.error(
+                run_fail(
                     `Failed to scrape (collector ${collector_id}): `
-                    +`HTTP ${res.status} ${res.body.slice(0, 200)}`
-                );
-                process.exit(1);
+                    +`HTTP ${res.status} ${res.body.slice(0, 200)}`,
+                opts);
                 return;
             }
             const data = parse_result_body(res.body);
@@ -1190,10 +1224,9 @@ const handle_run_scraper = async(
             return;
         } catch(e) {
             spinner.stop();
-            console.error(
+            run_fail(
                 `Failed to scrape (collector ${collector_id}): `
-                +`${(e as Error).message}`);
-            process.exit(1);
+                +`${(e as Error).message}`, opts);
             return;
         }
     }
@@ -1201,7 +1234,7 @@ const handle_run_scraper = async(
     try {
         timeout = parse_timeout(opts.timeout);
     } catch(e) {
-        fail((e as Error).message);
+        run_fail((e as Error).message, opts);
         return;
     }
     const trigger_spinner = start_spinner('Triggering scrape...');
@@ -1217,20 +1250,18 @@ const handle_run_scraper = async(
         trigger_spinner.stop();
         if (!trigger.response_id)
         {
-            console.error(
+            run_fail(
                 `Failed to trigger scraper (collector ${collector_id}): `
-                +'missing response_id in trigger response.');
-            process.exit(1);
+                +'missing response_id in trigger response.', opts);
             return;
         }
         response_id = trigger.response_id;
         console.error(dim(`Triggered (response_id: ${response_id})`));
     } catch(e) {
         trigger_spinner.stop();
-        console.error(
+        run_fail(
             `Failed to trigger scraper (collector ${collector_id}): `
-            +`${(e as Error).message}`);
-        process.exit(1);
+            +`${(e as Error).message}`, opts);
         return;
     }
     const poll_spinner = start_spinner('Waiting for results...');
@@ -1263,8 +1294,7 @@ const handle_run_scraper = async(
         const msg = (e as Error).message;
         const suffix = msg.includes(response_id)
             ? '' : ` (response_id ${response_id})`;
-        console.error(`${msg}${suffix}`);
-        process.exit(1);
+        run_fail(`${msg}${suffix}`, opts);
         return;
     }
 };
@@ -1475,6 +1505,7 @@ export {
     build_create_envelope,
     emit_create_output,
     handle_run_scraper,
+    format_run_error,
     build_run_request,
     build_run_query,
     classify_result,
