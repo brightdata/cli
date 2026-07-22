@@ -32,7 +32,8 @@ const ensure_authenticated = (cli_key: string|undefined): string=>{
         return key;
     console.error(
         'Error: No API key found.\n'
-        +'  Run \'brightdata login\' or set BRIGHTDATA_API_KEY env variable.'
+        +'  Run \'brightdata login\', or set BRIGHTDATA_API_KEY '
+        +'(BRIGHTDATA_API_TOKEN / API_TOKEN are also accepted).'
     );
     process.exit(1);
 };
