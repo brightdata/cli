@@ -46,27 +46,38 @@ const parse_timeout = (
 const poll_until = async<T>(opts: Poll_opts<T>): Promise<Poll_result<T>>=>{
     const interval_ms = opts.interval_ms ?? DEFAULT_POLL_INTERVAL_MS;
     const timeout_label = opts.timeout_label ?? 'completion';
-    for (let attempt=0; attempt<opts.timeout_seconds; attempt++)
+    // timeout_seconds is a wall-clock budget. The loop runs until this much
+    // real time has elapsed, counting both each request round-trip and the
+    // sleep interval. The previous version looped exactly timeout_seconds
+    // times, so every request's round-trip pushed the real runtime well past
+    // the stated budget (e.g. --timeout 600 took ~12 min, not ~10).
+    const deadline = Date.now()+opts.timeout_seconds*1000;
+    let attempt = 0;
+    for (;;)
     {
+        attempt++;
         const result = await opts.fetch_once();
         const status = opts.get_status(result);
         if (!status || !opts.running_statuses.includes(status))
         {
             return {
                 result,
-                attempts: attempt+1,
+                attempts: attempt,
                 last_status: status,
             };
         }
         if (opts.on_running)
         {
             opts.on_running({
-                attempt: attempt+1,
+                attempt,
                 timeout_seconds: opts.timeout_seconds,
                 status,
                 result,
             });
         }
+        // Stop before a sleep that would run past the budget.
+        if (Date.now()+interval_ms >= deadline)
+            break;
         await sleep(interval_ms);
     }
     throw new Error(
