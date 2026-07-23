@@ -112,6 +112,16 @@ describe('github_flow', ()=>{
         await expect(github_flow({})).rejects.toThrow('GitHub CLI (gh) not found');
     });
 
+    it('throws when gh is not authenticated', async()=>{
+        exec_mocks.execFile.mockImplementation(
+            (_cmd: unknown, _args: unknown, cb: (err: Error)=>void)=>{
+                cb(new Error('not logged into any GitHub hosts'));
+            }
+        );
+
+        await expect(github_flow({})).rejects.toThrow('GitHub CLI (gh) not found or not authenticated');
+    });
+
     it('throws when gh auth token returns empty output', async()=>{
         exec_mocks.execFile.mockImplementation(
             (_cmd: unknown, _args: unknown, cb: (
@@ -202,6 +212,45 @@ describe('github_flow', ()=>{
 
         const init_body = JSON.parse(spy.mock.calls[1][1]?.body as string);
         expect(init_body.email).toBeUndefined();
+    });
+
+    it('sends github_id and login in the init request body', async()=>{
+        const spy = vi.spyOn(globalThis, 'fetch');
+        setup_full_flow(spy);
+
+        await github_flow({});
+
+        const init_body = JSON.parse(spy.mock.calls[1][1]?.body as string);
+        expect(init_body.github_id).toBe(42);
+        expect(init_body.login).toBe('testuser');
+    });
+
+    it('throws when gist creation fails', async()=>{
+        vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(gh_json(true, 200, GH_USER))
+            .mockResolvedValueOnce(bd_resp(200, BD_INIT))
+            .mockResolvedValueOnce(gh_json(false, 403, {message: 'Forbidden'}));
+
+        await expect(github_flow({})).rejects.toThrow('Could not create verification gist');
+    });
+
+    it('throws on 429 rate limit from verify endpoint', async()=>{
+        vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(gh_json(true, 200, GH_USER))
+            .mockResolvedValueOnce(bd_resp(200, BD_INIT))
+            .mockResolvedValueOnce(gh_json(true, 201, GH_GIST))
+            .mockResolvedValueOnce(bd_resp(429, {error: 'rate_limited'}))
+            .mockResolvedValueOnce({ok: true, status: 204} as unknown as Response);
+
+        await expect(github_flow({})).rejects.toThrow('Rate limit exceeded');
+    });
+
+    it('throws when init response is missing challenge fields', async()=>{
+        vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(gh_json(true, 200, GH_USER))
+            .mockResolvedValueOnce(bd_resp(200, {}));
+
+        await expect(github_flow({})).rejects.toThrow('missing challenge fields');
     });
 
     it('deletes the gist even if verification fails', async()=>{
