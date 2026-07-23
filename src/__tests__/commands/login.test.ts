@@ -10,6 +10,7 @@ const mocks = vi.hoisted(()=>({
     client_post: vi.fn(),
     loopback_flow: vi.fn(),
     device_flow: vi.fn(),
+    github_flow: vi.fn(),
 }));
 
 vi.mock('../../utils/credentials', ()=>({
@@ -34,6 +35,7 @@ vi.mock('../../utils/client', ()=>({
 vi.mock('../../utils/browser_auth', ()=>({
     loopback_flow: mocks.loopback_flow,
     device_flow: mocks.device_flow,
+    github_flow: mocks.github_flow,
 }));
 
 import {handle_login} from '../../commands/login';
@@ -56,6 +58,7 @@ describe('commands/login', ()=>{
         mocks.validate_key.mockResolvedValue(true);
         mocks.loopback_flow.mockResolvedValue('oauth_key');
         mocks.device_flow.mockResolvedValue('device_key');
+        mocks.github_flow.mockResolvedValue('github_key');
         vi.spyOn(console, 'error').mockImplementation(()=>undefined);
     });
 
@@ -162,5 +165,25 @@ describe('commands/login', ()=>{
 
         expect(mocks.save).not.toHaveBeenCalled();
         expect(mocks.client_get).not.toHaveBeenCalled();
+    });
+
+    it('uses github flow when --github flag is set', async()=>{
+        await handle_login({github: true});
+
+        expect(mocks.github_flow).toHaveBeenCalledWith({
+            customer_id: undefined,
+        });
+        expect(mocks.loopback_flow).not.toHaveBeenCalled();
+        expect(mocks.device_flow).not.toHaveBeenCalled();
+        expect(mocks.save).toHaveBeenCalledWith({api_key: 'github_key'});
+    });
+
+    it('passes customer_id to github flow', async()=>{
+        await handle_login({github: true, customerId: 'hl_cust'});
+
+        expect(mocks.github_flow).toHaveBeenCalledWith({
+            customer_id: 'hl_cust',
+        });
+        expect(mocks.save).toHaveBeenCalledWith({api_key: 'github_key'});
     });
 });
