@@ -135,6 +135,9 @@ Get your API key from [brightdata.com/cp/setting/users](https://brightdata.com/c
 # Interactive — opens browser, saves key automatically
 brightdata login
 
+# Via GitHub CLI — no browser needed (requires gh)
+brightdata login --github
+
 # Non-interactive — pass key directly
 brightdata login --api-key <your-api-key>
 
