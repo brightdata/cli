@@ -1,5 +1,7 @@
 import http from 'http';
 import crypto from 'crypto';
+import {execFile} from 'child_process';
+import {promisify} from 'util';
 import {SUCCESS_HTML, ERROR_HTML} from './auth_pages';
 
 const BASE = process.env.BD_BASE || 'https://brightdata.com/users';
@@ -7,6 +9,8 @@ const AUTHORIZE_URL = `${BASE}/auth/cli/authorize`;
 const TOKEN_URL = `${BASE}/auth/cli/token`;
 const DEVICE_START = `${BASE}/auth/cli/device/start`;
 const DEVICE_TOKEN = `${BASE}/auth/cli/device/token`;
+const GITHUB_INIT_URL = `${BASE}/auth/cli/github/init`;
+const GITHUB_VERIFY_URL = `${BASE}/auth/cli/github/verify`;
 
 type Browser_auth_opts = {
     customer_id?: string;
@@ -45,6 +49,21 @@ type Token_response = {
     error?: string;
     error_description?: string;
 } & Json_object;
+
+type Github_init_response = {
+    challenge_id?: string;
+    gist_content?: string;
+    error?: string;
+    error_description?: string;
+} & Json_object;
+
+type Github_verify_response = {
+    api_key?: string;
+    error?: string;
+    error_description?: string;
+} & Json_object;
+
+const execFile_p = promisify(execFile);
 
 const sleep = (ms: number)=>new Promise(resolve=>setTimeout(resolve, ms));
 
@@ -99,6 +118,38 @@ const format_remote_error = (
     if (desc)
         return `${fallback}: ${desc}`;
     return fallback;
+};
+
+const bd_error = (
+    status: number,
+    json: Json_object|undefined,
+    context: string
+): Error=>{
+    const error = typeof json?.error == 'string' ? json.error : undefined;
+    const desc = typeof json?.error_description == 'string'
+        ? json.error_description
+        : undefined;
+    const raw = typeof json?.raw == 'string' ? json.raw : undefined;
+    if (status == 400 && error == 'multi_customer')
+    {
+        const detail = desc ? desc : 'Multiple accounts found';
+        return new Error(`${detail} \u2014 use --customer-id to specify your account`);
+    }
+    if (status == 404 && error == 'user_not_found')
+    {
+        return new Error(
+            'No Bright Data account found for your GitHub email'
+            + (desc ? `: ${desc}` : '')
+        );
+    }
+    if (status == 429)
+        return new Error('Rate limit exceeded, please try again in a moment');
+    if (status == 502)
+        return new Error('Could not reach GitHub API, please try again');
+    return new Error(
+        format_remote_error(`${context} (HTTP ${status})`, json)
+        + (raw ? `\nServer response: ${raw.slice(0, 300)}` : '')
+    );
 };
 
 const normalize_customer_id = (
@@ -412,4 +463,107 @@ async function device_flow(opts: Browser_auth_opts): Promise<string> {
     throw new Error('Timed out waiting for approval');
 }
 
-export {loopback_flow, device_flow, build_authorize_url, build_device_start_body};
+async function github_flow(opts: Browser_auth_opts): Promise<string> {
+    // Step 1 — read local gh token (used only in Authorization headers, never sent to BD)
+    let gh_token: string;
+    try {
+        const {stdout} = await execFile_p('gh', ['auth', 'token']);
+        gh_token = stdout.trim();
+        if (!gh_token)
+            throw new Error('empty output');
+    } catch(_e) {
+        throw new Error(
+            'GitHub CLI (gh) not found or not authenticated.\n'
+            + 'Install: https://cli.github.com/\n'
+            + 'Then run: gh auth login'
+        );
+    }
+
+    const gh_headers = {
+        Authorization: `Bearer ${gh_token}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'brightdata-cli',
+    };
+
+    // Step 2 — resolve GitHub user id and login
+    const user_res = await fetch('https://api.github.com/user', {headers: gh_headers})
+        .catch((e: Error)=>{
+            throw new Error(
+                `Could not fetch GitHub user info \u2014 ${e.message}. Re-run: gh auth refresh`
+            );
+        });
+    if (!user_res.ok)
+    {
+        throw new Error(
+            `Could not fetch GitHub user info (HTTP ${user_res.status}). Re-run: gh auth refresh`
+        );
+    }
+    const user_data = await user_res.json() as {id?: unknown; login?: unknown; email?: unknown};
+    if (typeof user_data.id != 'number' || typeof user_data.login != 'string')
+        throw new Error('GitHub /user returned unexpected data');
+    const github_id = user_data.id;
+    const github_login = user_data.login;
+    const email = typeof user_data.email == 'string' ? user_data.email : undefined;
+
+    // Step 3 — send claims to BD (BD trusts nothing; verifies identity via gist challenge)
+    const init_body: Json_object = {github_id, login: github_login};
+    if (email)
+        init_body.email = email;
+    const customer_id = normalize_customer_id(opts.customer_id);
+    if (customer_id)
+        init_body.customer_id = customer_id;
+
+    const {status: s_init, json: j_init} = await post_json<Github_init_response>(
+        GITHUB_INIT_URL, init_body
+    );
+    if (s_init >= 400)
+        throw bd_error(s_init, j_init, 'GitHub auth init failed');
+
+    const challenge_id = j_init?.challenge_id;
+    const gist_content = j_init?.gist_content;
+    if (typeof challenge_id != 'string' || typeof gist_content != 'string')
+        throw new Error('GitHub auth init failed: missing challenge fields in response');
+
+    // Step 5 — create private verification gist (gh token stays on machine)
+    const gist_post_res = await fetch('https://api.github.com/gists', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', ...gh_headers},
+        body: JSON.stringify({
+            description: 'Bright Data CLI verification',
+            public: false,
+            files: {'brightdata-verify.txt': {content: gist_content}},
+        }),
+    }).catch((e: Error)=>{
+        throw new Error(`Could not create verification gist \u2014 ${e.message}`);
+    });
+    if (!gist_post_res.ok)
+        throw new Error(`Could not create verification gist (HTTP ${gist_post_res.status})`);
+    const gist_data = await gist_post_res.json() as {id?: unknown};
+    if (typeof gist_data.id != 'string')
+        throw new Error('GitHub gist creation returned no id');
+    const gist_id = gist_data.id;
+
+    // Steps 6+7 — BD verifies gist independently, then we delete it regardless of outcome
+    let verify_status = 0;
+    let verify_json: Github_verify_response|undefined;
+    try {
+        const r = await post_json<Github_verify_response>(
+            GITHUB_VERIFY_URL,
+            {challenge_id, github_id, gist_id}
+        );
+        verify_status = r.status;
+        verify_json = r.json;
+    } finally {
+        await fetch(`https://api.github.com/gists/${gist_id}`, {
+            method: 'DELETE',
+            headers: gh_headers,
+        }).catch(()=>undefined);
+    }
+
+    if (verify_status >= 400)
+        throw bd_error(verify_status, verify_json, 'GitHub verification failed');
+
+    return ensure_api_key(verify_json, 'GitHub verification failed');
+}
+
+export {loopback_flow, device_flow, github_flow, build_authorize_url, build_device_start_body};

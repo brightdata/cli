@@ -3,7 +3,7 @@ import {save} from '../utils/credentials';
 import {validate_key, mask_key} from '../utils/auth';
 import {get as get_config, set as set_config} from '../utils/config';
 import {get, post} from '../utils/client';
-import {loopback_flow, device_flow} from '../utils/browser_auth';
+import {loopback_flow, device_flow, github_flow} from '../utils/browser_auth';
 
 const UNLOCKER_ZONE = 'cli_unlocker';
 const BROWSER_ZONE  = 'cli_browser';
@@ -16,6 +16,7 @@ type Zone = {
 type Login_opts = {
     apiKey?: string;
     device?: boolean;
+    github?: boolean;
     customerId?: string;
 };
 
@@ -96,6 +97,11 @@ const handle_login = async(opts: Login_opts)=>{
             process.exit(1);
         }
     }
+    else if (opts.github)
+    {
+        const customer_id = await resolve_customer_id(opts.customerId);
+        api_key = (await github_flow({customer_id})).trim();
+    }
     else if (opts.device)
     {
         const customer_id = await resolve_customer_id(opts.customerId);
@@ -117,6 +123,7 @@ const login_command = new Command('login')
     .option('-k, --api-key <key>', 'Use API key directly (skips browser)')
     .option('-c, --customer-id <id>', 'Optional Bright Data account ID')
     .option('-d, --device', 'Use device flow for SSH/headless environments')
+    .option('-g, --github', 'Authenticate using GitHub CLI (gh auth token)')
     .action(handle_login);
 
 export {login_command, handle_login};
