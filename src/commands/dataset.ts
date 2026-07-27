@@ -150,6 +150,16 @@ const build_input = (dataset_type: Dataset_type,
         }
         return {url, first_name, last_name};
     }
+    if (dataset_type == 'amazon_product_reviews') {
+    const url = params[0];
+    const max_reviews = params[1];
+    if (!url) {
+        fail('Usage: brightdata pipelines amazon_product_reviews <url> '
+            +'[max_reviews]');
+        return {};
+    }
+    return max_reviews ? {url, max_reviews} : {url};
+}
     if (dataset_type == 'facebook_company_reviews')
     {
         const url = params[0];
