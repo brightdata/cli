@@ -1,4 +1,5 @@
 import {Command} from 'commander';
+import readline from 'readline';
 import {save} from '../utils/credentials';
 import {validate_key, mask_key} from '../utils/auth';
 import {get as get_config, set as set_config} from '../utils/config';
@@ -74,7 +75,17 @@ const resolve_customer_id = async(
     const resolved = cli_customer_id ?? process.env['BRIGHTDATA_CUSTOMER_ID'];
     return resolved?.trim() || undefined;
 };
-
+const prompt_yes_no = (question: string): Promise<boolean>=>
+    new Promise(resolve=>{
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stderr,
+        });
+        rl.question(question, answer=>{
+            rl.close();
+            resolve(answer.trim().toLowerCase() === 'y');
+        });
+    });
 const handle_login = async(opts: Login_opts)=>{
     let api_key: string;
 
@@ -100,7 +111,18 @@ const handle_login = async(opts: Login_opts)=>{
     else if (opts.github)
     {
         const customer_id = await resolve_customer_id(opts.customerId);
-        api_key = (await github_flow({customer_id})).trim();
+        try {
+            api_key = (await github_flow({customer_id})).trim();
+        } catch(e) {
+            console.error(`\nGitHub auth failed: ${(e as Error).message}`);
+            const fallback = await prompt_yes_no(
+                'Try device flow instead? [y/N] '
+            );
+            if (!fallback)
+                throw e;
+            console.error('Falling back to device flow...');
+            api_key = (await device_flow({customer_id})).trim();
+        }
     }
     else if (opts.device)
     {

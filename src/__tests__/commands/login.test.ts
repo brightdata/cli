@@ -11,6 +11,7 @@ const mocks = vi.hoisted(()=>({
     loopback_flow: vi.fn(),
     device_flow: vi.fn(),
     github_flow: vi.fn(),
+    rl_question: vi.fn(),
 }));
 
 vi.mock('../../utils/credentials', ()=>({
@@ -30,6 +31,15 @@ vi.mock('../../utils/config', ()=>({
 vi.mock('../../utils/client', ()=>({
     get: mocks.client_get,
     post: mocks.client_post,
+}));
+
+vi.mock('readline', ()=>({
+    default: {
+        createInterface: vi.fn(()=>({
+            question: mocks.rl_question,
+            close: vi.fn(),
+        })),
+    },
 }));
 
 vi.mock('../../utils/browser_auth', ()=>({
@@ -185,5 +195,31 @@ describe('commands/login', ()=>{
             customer_id: 'hl_cust',
         });
         expect(mocks.save).toHaveBeenCalledWith({api_key: 'github_key'});
+    });
+
+    it('falls back to device flow when github flow fails and user answers y', async()=>{
+        mocks.github_flow.mockRejectedValue(new Error('GitHub auth init failed (HTTP 400)'));
+        mocks.rl_question.mockImplementation(
+            (_question: string, cb: (answer: string)=>void)=>cb('y')
+        );
+
+        await handle_login({github: true});
+
+        expect(mocks.github_flow).toHaveBeenCalled();
+        expect(mocks.device_flow).toHaveBeenCalledWith({customer_id: undefined});
+        expect(mocks.save).toHaveBeenCalledWith({api_key: 'device_key'});
+    });
+
+    it('rethrows github flow error when user declines fallback', async()=>{
+        const error = new Error('GitHub auth init failed (HTTP 400)');
+        mocks.github_flow.mockRejectedValue(error);
+        mocks.rl_question.mockImplementation(
+            (_question: string, cb: (answer: string)=>void)=>cb('n')
+        );
+
+        await expect(handle_login({github: true})).rejects.toThrow(error);
+
+        expect(mocks.device_flow).not.toHaveBeenCalled();
+        expect(mocks.save).not.toHaveBeenCalled();
     });
 });
