@@ -97,13 +97,11 @@ describe('browser/ipc', ()=>{
             kind: 'tcp',
             host: '127.0.0.1',
             port: get_port_for_session('shop'),
+            token_path: 'C:\\Users\\tester\\AppData\\Roaming\\brightdata-cli\\shop.token',
         });
     });
 
-    it('sends commands to a real daemon over the unix socket transport', async()=>{
-        if (process.platform == 'win32')
-            return;
-
+    it('sends authenticated commands to a real daemon', async()=>{
         daemon = new BrowserDaemon({
             cdp_endpoint: 'wss://example.test',
             daemon_dir: tmp_dir,

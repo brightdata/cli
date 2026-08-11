@@ -324,20 +324,36 @@ const is_raw_screenshot_output_path = (
         && !opts.pretty;
 };
 
-const get_screenshot_params = (
+const get_local_screenshot_path = (
     file_path: string|undefined,
     opts: Browser_cli_opts,
-)=>({
-    base64: opts.base64 === true,
-    full_page: opts.fullPage === true,
-    path: parse_screenshot_path(file_path, 'Screenshot path')
+): string|undefined=>{
+    return parse_screenshot_path(file_path, 'Screenshot path')
         ?? parse_screenshot_path(
             is_raw_screenshot_output_path(file_path, opts)
                 ? opts.output
                 : undefined,
             'Screenshot output path'
-        ),
+        );
+};
+
+const get_screenshot_params = (
+    local_path: string|undefined,
+    opts: Browser_cli_opts,
+)=>({
+    base64: opts.base64 === true || local_path !== undefined,
+    full_page: opts.fullPage === true,
 });
+
+const save_screenshot = (local_path: string, base64: string|undefined)=>{
+    if (!base64)
+    {
+        fail('Browser daemon returned no screenshot data to save.');
+        return;
+    }
+    fs.mkdirSync(path.dirname(local_path), {recursive: true});
+    fs.writeFileSync(local_path, Buffer.from(base64, 'base64'));
+};
 
 const get_action_opts = (
     opts: Browser_cli_opts,
@@ -410,7 +426,7 @@ const get_browser_session_names = (opts: Browser_cli_opts = {}): string[]=>{
     const sessions = new Set<string>();
     for (const entry of fs.readdirSync(base_dir))
     {
-        const match = entry.match(/^(.+)\.(pid|sock|port)$/);
+        const match = entry.match(/^(.+)\.(pid|sock|port|token)$/);
         if (match)
             sessions.add(match[1]);
     }
@@ -529,16 +545,24 @@ const handle_browser_screenshot = async(
     assert_screenshot_flags(opts, 'brightdata browser screenshot');
     const session_name = get_session_name(opts.session);
     await ensure_active_session(session_name, opts);
+    const local_path = get_local_screenshot_path(file_path, opts);
     const data = await send_browser_action(
         session_name,
         'screenshot',
         opts,
-        get_screenshot_params(file_path, opts),
+        get_screenshot_params(local_path, opts),
     ) as Browser_daemon_screenshot;
+
+    if (local_path)
+        save_screenshot(local_path, data.base64);
 
     if (opts.json || opts.pretty)
     {
-        print(data, get_print_opts(opts));
+        print({
+            ...data,
+            base64: opts.base64 ? data.base64 : undefined,
+            path: local_path ?? data.path,
+        }, get_print_opts(opts));
         return;
     }
 
@@ -549,7 +573,7 @@ const handle_browser_screenshot = async(
     }
 
     print(
-        data.path ?? '',
+        local_path ?? data.path ?? '',
         is_raw_screenshot_output_path(file_path, opts)
             ? {}
             : {output: opts.output}

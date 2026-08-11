@@ -6,9 +6,11 @@ import {EventEmitter} from 'events';
 import type {ChildProcess} from 'child_process';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {DEFAULT_DAEMON_IDLE_TIMEOUT_MS} from '../../browser/daemon';
+import {get_daemon_transport} from '../../browser/ipc';
 import {
     cleanup_stale_files,
     ensure_daemon,
+    format_transport,
     is_daemon_alive,
     wait_for_daemon,
 } from '../../browser/lifecycle';
@@ -39,16 +41,20 @@ describe('browser/lifecycle', ()=>{
         fs.rmSync(tmp_dir, {recursive: true, force: true});
     });
 
-    it('removes stale socket and pid files', ()=>{
-        const pid_path = path.join(tmp_dir, 'demo.pid');
-        const socket_path = path.join(tmp_dir, 'demo.sock');
-        fs.writeFileSync(pid_path, '1');
-        fs.writeFileSync(socket_path, '');
+    it('removes stale transport, pid, and token files', ()=>{
+        const transport = get_daemon_transport('demo', {daemon_dir: tmp_dir});
+        const transport_path = transport.kind == 'unix'
+            ? transport.socket_path
+            : transport.port_path;
+        fs.writeFileSync(transport.pid_path, '1');
+        fs.writeFileSync(transport_path, '');
+        fs.writeFileSync(transport.token_path, 'secret');
 
         cleanup_stale_files('demo', {daemon_dir: tmp_dir});
 
-        expect(fs.existsSync(pid_path)).toBe(false);
-        expect(fs.existsSync(socket_path)).toBe(false);
+        expect(fs.existsSync(transport.pid_path)).toBe(false);
+        expect(fs.existsSync(transport_path)).toBe(false);
+        expect(fs.existsSync(transport.token_path)).toBe(false);
     });
 
     it('checks daemon liveness via a connectable unix socket', async()=>{
@@ -94,6 +100,7 @@ describe('browser/lifecycle', ()=>{
 
     it('times out when the daemon never becomes connectable', async()=>{
         let now = 0;
+        const transport = get_daemon_transport('demo', {daemon_dir: tmp_dir});
 
         await expect(wait_for_daemon('demo', 150, {daemon_dir: tmp_dir}, {
             current_time: ()=>now,
@@ -102,7 +109,7 @@ describe('browser/lifecycle', ()=>{
                 now += ms;
             },
         })).rejects.toThrow(
-            `Timed out waiting for browser daemon session "demo" to start at ${path.join(tmp_dir, 'demo.sock')}.`
+            `Timed out waiting for browser daemon session "demo" to start at ${format_transport(transport)}.`
         );
     });
 
@@ -110,10 +117,12 @@ describe('browser/lifecycle', ()=>{
         const child = new Mock_child();
         const spawn_process = vi.fn(()=>child as unknown as ChildProcess);
         const wait_for_ready = vi.fn(async()=>undefined);
-        const stale_pid_path = path.join(tmp_dir, 'demo.pid');
-        const stale_socket_path = path.join(tmp_dir, 'demo.sock');
-        fs.writeFileSync(stale_pid_path, '999');
-        fs.writeFileSync(stale_socket_path, '');
+        const transport = get_daemon_transport('demo', {daemon_dir: tmp_dir});
+        const stale_transport_path = transport.kind == 'unix'
+            ? transport.socket_path
+            : transport.port_path;
+        fs.writeFileSync(transport.pid_path, '999');
+        fs.writeFileSync(stale_transport_path, '');
 
         await ensure_daemon('demo', {
             cdp_endpoint: 'wss://example.test',
@@ -128,8 +137,8 @@ describe('browser/lifecycle', ()=>{
             wait_for_daemon: wait_for_ready,
         });
 
-        expect(fs.existsSync(stale_pid_path)).toBe(false);
-        expect(fs.existsSync(stale_socket_path)).toBe(false);
+        expect(fs.existsSync(transport.pid_path)).toBe(false);
+        expect(fs.existsSync(stale_transport_path)).toBe(false);
         expect(spawn_process).toHaveBeenCalledWith(
             '/usr/bin/node',
             ['/tmp/daemon-entry.js', '--daemon'],

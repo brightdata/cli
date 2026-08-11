@@ -251,6 +251,13 @@ class Mock_browser extends EventEmitter {
 
 const mk_tmp_dir = ()=>fs.mkdtempSync(path.join(os.tmpdir(), 'bdata-daemon-'));
 
+const connect_to_daemon = (daemon: BrowserDaemon): net.Socket=>{
+    const transport = daemon.get_transport();
+    return transport.kind == 'unix'
+        ? net.createConnection(transport.socket_path)
+        : net.createConnection(transport.port, transport.host);
+};
+
 const read_line = async(socket: net.Socket): Promise<string>=>{
     return await new Promise((resolve, reject)=>{
         let buffer = '';
@@ -280,6 +287,36 @@ const read_line = async(socket: net.Socket): Promise<string>=>{
         socket.on('data', on_data);
         socket.on('error', on_error);
         socket.on('end', on_end);
+    });
+};
+
+const wait_for_close = async(
+    socket: net.Socket,
+    timeout_ms = 1_000,
+): Promise<void>=>{
+    await new Promise<void>((resolve, reject)=>{
+        const on_close = ()=>{
+            cleanup();
+            resolve();
+        };
+        const on_error = ()=>{
+            cleanup();
+            socket.destroy();
+            resolve();
+        };
+        const timer = setTimeout(()=>{
+            cleanup();
+            socket.destroy();
+            reject(new Error('Timed out waiting for daemon socket to close.'));
+        }, timeout_ms);
+        const cleanup = ()=>{
+            clearTimeout(timer);
+            socket.off('close', on_close);
+            socket.off('error', on_error);
+        };
+
+        socket.once('close', on_close);
+        socket.once('error', on_error);
     });
 };
 
@@ -559,14 +596,19 @@ describe('browser/daemon', ()=>{
             session_name: 'screenshot-actions',
         }, {connect_over_cdp});
 
-        const output_path = path.join(tmp_dir, 'captures', 'page.png');
+        const relative_path = path.join('captures', 'page.png');
+        const output_path = path.join(
+            tmp_dir,
+            'screenshots',
+            relative_path,
+        );
         const screenshot = await daemon.handle_request({
             id: 'screenshot-1',
             action: 'screenshot',
             params: {
                 base64: true,
                 full_page: true,
-                path: output_path,
+                path: relative_path,
             },
         });
         expect(screenshot).toMatchObject({
@@ -661,10 +703,7 @@ describe('browser/daemon', ()=>{
         await daemon.stop();
     });
 
-    it('serves requests over the daemon listener', async()=>{
-        if (process.platform == 'win32')
-            return;
-
+    it('serves authenticated requests over the daemon listener', async()=>{
         const daemon = new BrowserDaemon({
             cdp_endpoint: 'wss://example.test',
             daemon_dir: tmp_dir,
@@ -674,10 +713,15 @@ describe('browser/daemon', ()=>{
         await daemon.start();
 
         const transport = daemon.get_transport();
-        expect(transport.kind).toBe('unix');
+        const token = fs.readFileSync(transport.token_path, 'utf8');
+        expect(token).toMatch(/^[0-9a-f]{64}$/);
 
-        const socket = net.createConnection((transport as {socket_path: string}).socket_path);
-        socket.write(JSON.stringify({id: 'sock-1', action: 'status'})+'\n');
+        const socket = connect_to_daemon(daemon);
+        socket.write(JSON.stringify({
+            id: 'sock-1',
+            action: 'status',
+            token,
+        })+'\n');
         const response = JSON.parse(await read_line(socket)) as {
             success: boolean;
             data: {session_name: string};
@@ -686,6 +730,74 @@ describe('browser/daemon', ()=>{
         expect(response.data.session_name).toBe('socket-test');
 
         socket.end();
+        await daemon.stop();
+        expect(fs.existsSync(transport.token_path)).toBe(false);
+    });
+
+    it('rejects listener requests without the session token', async()=>{
+        const daemon = new BrowserDaemon({
+            cdp_endpoint: 'wss://example.test',
+            daemon_dir: tmp_dir,
+            idle_timeout_ms: 0,
+            session_name: 'socket-unauthorized',
+        });
+        await daemon.start();
+
+        const socket = connect_to_daemon(daemon);
+        socket.write(JSON.stringify({
+            id: 'unauthorized-1',
+            action: 'close',
+        })+'\n');
+        const response = JSON.parse(await read_line(socket)) as {
+            id: string;
+            success: boolean;
+            error: string;
+        };
+
+        expect(response).toMatchObject({
+            id: 'unauthorized-1',
+            success: false,
+        });
+        expect(response.error).toContain('Unauthorized browser daemon request');
+        expect(daemon.is_running()).toBe(true);
+
+        socket.destroy();
+        await daemon.stop();
+    });
+
+    it('drops HTTP traffic before parsing its JSON body', async()=>{
+        const daemon = new BrowserDaemon({
+            cdp_endpoint: 'wss://example.test',
+            daemon_dir: tmp_dir,
+            idle_timeout_ms: 0,
+            session_name: 'socket-http-drop',
+        });
+        await daemon.start();
+
+        const transport = daemon.get_transport();
+        const token = fs.readFileSync(transport.token_path, 'utf8');
+        const body = JSON.stringify({
+            id: 'http-close',
+            action: 'close',
+            token,
+        })+'\n';
+        const socket = connect_to_daemon(daemon);
+        let response = '';
+        socket.on('data', chunk=>{
+            response += chunk.toString();
+        });
+        const closed = wait_for_close(socket);
+        socket.write(
+            'POST / HTTP/1.1\r\n'
+            +'Host: 127.0.0.1\r\n'
+            +`Content-Length: ${Buffer.byteLength(body)}\r\n`
+            +'\r\n'
+            +body
+        );
+        await closed;
+
+        expect(response).toBe('');
+        expect(daemon.is_running()).toBe(true);
         await daemon.stop();
     });
 

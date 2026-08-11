@@ -16,8 +16,13 @@ import {
     handle_type,
 } from './interaction';
 import {parse_daemon_request} from './ipc';
-import {take_screenshot} from './screenshot';
+import {get_screenshot_base_dir, take_screenshot} from './screenshot';
 import {capture_snapshot} from './snapshot';
+import {
+    create_daemon_token,
+    is_daemon_token_valid,
+    write_daemon_token,
+} from './token';
 import type {
     Browser,
     BrowserContext,
@@ -29,7 +34,14 @@ import type {
 const DEFAULT_SESSION_NAME = 'default';
 const DEFAULT_DAEMON_IDLE_TIMEOUT_MS = 600_000;
 const KEEPALIVE_INTERVAL = 30_000;
+const MAX_REQUEST_BYTES = 1_048_576;
 const MAX_TRACKED_REQUESTS = 200;
+const UNAUTHORIZED_ERROR = 'Unauthorized browser daemon request: missing or '
+    +'invalid session token.';
+const HTTP_METHOD_PREFIXES = [
+    'CONNECT ', 'DELETE ', 'GET ', 'HEAD ', 'OPTIONS ', 'PATCH ', 'POST ',
+    'PUT ', 'TRACE ',
+];
 const WINDOWS_PORT_BASE = 49_152;
 const WINDOWS_PORT_SPAN = 16_383;
 
@@ -72,6 +84,7 @@ type Unix_transport = {
     base_dir: string;
     pid_path: string;
     socket_path: string;
+    token_path: string;
 };
 
 type Tcp_transport = {
@@ -81,6 +94,7 @@ type Tcp_transport = {
     pid_path: string;
     port: number;
     port_path: string;
+    token_path: string;
 };
 
 type Daemon_transport = Unix_transport|Tcp_transport;
@@ -113,6 +127,16 @@ type Browser_daemon_deps = {
 
 const is_object = (value: unknown): value is Json_object=>{
     return !!value && typeof value == 'object' && !Array.isArray(value);
+};
+
+const is_json_request_head = (head: string): boolean=>{
+    const upper = head.slice(0, 16).toUpperCase();
+    for (const prefix of HTTP_METHOD_PREFIXES)
+    {
+        if (upper.startsWith(prefix))
+            return false;
+    }
+    return head.startsWith('{');
 };
 
 const get_path_api = (platform: NodeJS.Platform)=>
@@ -207,6 +231,8 @@ const get_daemon_transport = (
     const path_api = get_path_api(platform);
     const pid_path = path_api.join(base_dir,
         `${normalized_session}.pid`);
+    const token_path = path_api.join(base_dir,
+        `${normalized_session}.token`);
 
     if (platform == 'win32')
     {
@@ -219,6 +245,7 @@ const get_daemon_transport = (
             port,
             port_path: path_api.join(base_dir,
                 `${normalized_session}.port`),
+            token_path,
         };
     }
 
@@ -228,6 +255,7 @@ const get_daemon_transport = (
         pid_path,
         socket_path: path_api.join(base_dir,
             `${normalized_session}.sock`),
+        token_path,
     };
 };
 
@@ -235,6 +263,7 @@ class BrowserDaemon {
     readonly state: Daemon_state;
     private readonly active_contexts = new WeakSet<BrowserContext>();
     private readonly active_pages = new WeakSet<Page>();
+    private readonly auth_token = create_daemon_token();
     private readonly deps: Required<Browser_daemon_deps>;
     private readonly idle_timeout_ms: number;
     private readonly request_ids = new WeakMap<Playwright_request, string>();
@@ -294,7 +323,8 @@ class BrowserDaemon {
         if (this.server?.listening)
             return;
 
-        fs.mkdirSync(this.transport.base_dir, {recursive: true});
+        fs.mkdirSync(this.transport.base_dir, {recursive: true, mode: 0o700});
+        write_daemon_token(this.transport.token_path, this.auth_token);
         if (this.transport.kind == 'unix' &&
             fs.existsSync(this.transport.socket_path))
         {
@@ -441,6 +471,7 @@ class BrowserDaemon {
 
     private cleanup_transport_files(){
         fs.rmSync(this.transport.pid_path, {force: true});
+        fs.rmSync(this.transport.token_path, {force: true});
         if (this.transport.kind == 'unix')
             fs.rmSync(this.transport.socket_path, {force: true});
         else
@@ -450,10 +481,31 @@ class BrowserDaemon {
     private handle_socket(socket: net.Socket){
         socket.setEncoding('utf8');
         let buffer = '';
+        let inspected = false;
         let queue = Promise.resolve();
 
         socket.on('data', chunk=>{
-            buffer += chunk;
+            const text = String(chunk);
+            if (buffer.length+text.length > MAX_REQUEST_BYTES)
+            {
+                socket.destroy();
+                return;
+            }
+            buffer += text;
+
+            if (!inspected)
+            {
+                const head = buffer.trimStart();
+                if (!head)
+                    return;
+                inspected = true;
+                if (!is_json_request_head(head))
+                {
+                    socket.destroy();
+                    return;
+                }
+            }
+
             let newline_index = buffer.indexOf('\n');
             while (newline_index >= 0)
             {
@@ -477,7 +529,13 @@ class BrowserDaemon {
         let response: Daemon_response;
 
         try {
-            request = parse_daemon_request(JSON.parse(line));
+            const payload: unknown = JSON.parse(line);
+            if (!this.is_authorized(payload))
+            {
+                this.reject_unauthorized(socket, payload);
+                return;
+            }
+            request = parse_daemon_request(payload);
             response = await this.handle_request(request);
         } catch(error) {
             response = {
@@ -495,6 +553,29 @@ class BrowserDaemon {
             socket.end();
             void this.stop();
         }
+    }
+
+    private is_authorized(payload: unknown): boolean {
+        if (!is_object(payload))
+            return false;
+        return is_daemon_token_valid(this.auth_token, payload['token']);
+    }
+
+    private reject_unauthorized(socket: net.Socket, payload: unknown){
+        const id = is_object(payload) && typeof payload['id'] == 'string'
+            && payload['id'].trim()
+            ? payload['id'].trim()
+            : 'unauthorized';
+        if (!socket.destroyed)
+        {
+            socket.end(JSON.stringify({
+                id,
+                success: false,
+                error: UNAUTHORIZED_ERROR,
+            })+'\n');
+            return;
+        }
+        socket.destroy();
     }
 
 
@@ -709,6 +790,7 @@ class BrowserDaemon {
         const page = await this.ensure_connected();
         return await take_screenshot(page, {
             base64: base64 === true,
+            base_dir: get_screenshot_base_dir(this.transport.base_dir),
             full_page: full_page === true,
             path: typeof file_path == 'string' ? file_path.trim() : undefined,
         });

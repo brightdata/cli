@@ -98,6 +98,7 @@ const format_transport = (transport: Daemon_transport): string=>{
 const cleanup_stale_files = (session_name: string, opts: Ipc_opts = {})=>{
     const transport = get_daemon_transport(session_name, opts);
     fs.rmSync(transport.pid_path, {force: true});
+    fs.rmSync(transport.token_path, {force: true});
     if (transport.kind == 'unix')
         fs.rmSync(transport.socket_path, {force: true});
     else

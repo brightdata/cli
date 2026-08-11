@@ -1,4 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
+import path from 'path';
 
 const mocks = vi.hoisted(()=>({
     DEFAULT_IPC_TIMEOUT_MS: 30_000,
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(()=>({
     get_daemon_base_dir: vi.fn(),
     info: vi.fn(),
     is_daemon_alive: vi.fn(),
+    mkdirSync: vi.fn(),
     normalize_session_name: vi.fn(),
     print: vi.fn(),
     readdirSync: vi.fn(),
@@ -19,6 +21,7 @@ const mocks = vi.hoisted(()=>({
     start: vi.fn(),
     stop: vi.fn(),
     success: vi.fn(),
+    writeFileSync: vi.fn(),
 }));
 
 // Mock the `node:` specifier — vitest 4 normalizes node builtins, so this also
@@ -26,7 +29,9 @@ const mocks = vi.hoisted(()=>({
 vi.mock('node:fs', ()=>({
     default: {
         existsSync: mocks.existsSync,
+        mkdirSync: mocks.mkdirSync,
         readdirSync: mocks.readdirSync,
+        writeFileSync: mocks.writeFileSync,
     },
 }));
 
@@ -224,12 +229,13 @@ describe('commands/browser', ()=>{
     });
 
     it('captures a screenshot for an active browser session', async()=>{
+        const output_path = path.resolve('/tmp/browser-shot.png');
         mocks.send_command.mockResolvedValue({
             success: true,
             data: {
+                base64: 'aW1hZ2U=',
                 full_page: true,
                 mime_type: 'image/png',
-                path: '/tmp/browser-shot.png',
             },
         });
 
@@ -243,15 +249,22 @@ describe('commands/browser', ()=>{
             expect.objectContaining({
                 action: 'screenshot',
                 params: {
-                    base64: false,
+                    base64: true,
                     full_page: true,
-                    path: '/tmp/browser-shot.png',
                 },
             }),
             {daemon_dir: undefined, timeout_ms: undefined}
         );
+        expect(mocks.mkdirSync).toHaveBeenCalledWith(
+            path.dirname(output_path),
+            {recursive: true}
+        );
+        expect(mocks.writeFileSync).toHaveBeenCalledWith(
+            output_path,
+            Buffer.from('image')
+        );
         expect(mocks.print).toHaveBeenCalledWith(
-            '/tmp/browser-shot.png',
+            output_path,
             {output: undefined}
         );
     });
@@ -280,11 +293,12 @@ describe('commands/browser', ()=>{
             'shop.sock',
             'shop.pid',
             'stale.pid',
+            'token-only.token',
             'notes.txt',
         ]);
 
         expect(get_browser_session_names({daemonDir: '/tmp/test'}))
-            .toEqual(['shop', 'stale']);
+            .toEqual(['shop', 'stale', 'token-only']);
         expect(mocks.get_daemon_base_dir).toHaveBeenCalledWith({daemon_dir: '/tmp/test'});
     });
 
@@ -499,6 +513,7 @@ describe('commands/browser', ()=>{
     });
 
     it('parses screenshot flags and forwards the screenshot params', async()=>{
+        const output_path = path.resolve('/tmp/browser-shot.png');
         mocks.send_command.mockResolvedValue({
             success: true,
             data: {
@@ -528,7 +543,6 @@ describe('commands/browser', ()=>{
                 params: {
                     base64: true,
                     full_page: true,
-                    path: '/tmp/browser-shot.png',
                 },
             }),
             {daemon_dir: undefined, timeout_ms: undefined}
@@ -538,9 +552,13 @@ describe('commands/browser', ()=>{
                 base64: 'aW1hZ2U=',
                 full_page: true,
                 mime_type: 'image/png',
-                path: '/tmp/browser-shot.png',
+                path: output_path,
             },
             {json: true, output: undefined, pretty: undefined}
+        );
+        expect(mocks.writeFileSync).toHaveBeenCalledWith(
+            output_path,
+            Buffer.from('image')
         );
     });
 

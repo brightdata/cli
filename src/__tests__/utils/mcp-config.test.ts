@@ -45,7 +45,8 @@ describe('utils/mcp-config', ()=>{
                 'bright-data': get_expected_entry('new_key'),
             },
         });
-        expect(fs.statSync(file_path).mode & 0o777).toBe(0o600);
+        if (process.platform != 'win32')
+            expect(fs.statSync(file_path).mode & 0o777).toBe(0o600);
     });
 
     it('merges the Bright Data server into an existing config', ()=>{

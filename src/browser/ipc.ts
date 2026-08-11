@@ -1,6 +1,7 @@
 import net from 'net';
 import os from 'os';
 import path from 'path';
+import {read_daemon_token} from './token';
 
 const DEFAULT_SESSION_NAME = 'default';
 const DEFAULT_IPC_TIMEOUT_MS = 30_000;
@@ -27,6 +28,7 @@ type Unix_transport = {
     base_dir: string;
     pid_path: string;
     socket_path: string;
+    token_path: string;
 };
 
 type Tcp_transport = {
@@ -36,6 +38,7 @@ type Tcp_transport = {
     pid_path: string;
     port: number;
     port_path: string;
+    token_path: string;
 };
 
 type Daemon_transport = Unix_transport|Tcp_transport;
@@ -130,6 +133,8 @@ const get_daemon_transport = (
     const path_api = get_path_api(platform);
     const pid_path = path_api.join(base_dir,
         `${normalized_session}.pid`);
+    const token_path = path_api.join(base_dir,
+        `${normalized_session}.token`);
 
     if (platform == 'win32')
     {
@@ -142,6 +147,7 @@ const get_daemon_transport = (
             port,
             port_path: path_api.join(base_dir,
                 `${normalized_session}.port`),
+            token_path,
         };
     }
 
@@ -151,6 +157,7 @@ const get_daemon_transport = (
         pid_path,
         socket_path: path_api.join(base_dir,
             `${normalized_session}.sock`),
+        token_path,
     };
 };
 
@@ -303,9 +310,13 @@ const send_command = async(
     opts: Ipc_opts = {}
 ): Promise<Daemon_response>=>{
     const normalized_request = parse_daemon_request(request);
-    const socket = await connect_socket(session_name, opts);
+    const transport = opts.transport ?? get_daemon_transport(session_name, opts);
+    const token = read_daemon_token(transport.token_path);
+    const socket = await connect_socket(session_name, {...opts, transport});
     try {
-        await write_line(socket, JSON.stringify(normalized_request)+'\n');
+        await write_line(socket, JSON.stringify(
+            token ? {...normalized_request, token} : normalized_request
+        )+'\n');
         let line: string;
         try {
             line = await read_line(socket);
