@@ -1205,7 +1205,7 @@ CLI flags  →  Environment variables  →  config.json  →  Defaults
 | `BRIGHTDATA_SERP_ZONE` | Default SERP zone |
 | `BRIGHTDATA_POLLING_TIMEOUT` | Default polling timeout in seconds |
 | `BRIGHTDATA_BROWSER_ZONE` | Default Scraping Browser zone (default: `cli_browser`) |
-| `BRIGHTDATA_DAEMON_DIR` | Override the directory used for browser daemon socket and PID files |
+| `BRIGHTDATA_DAEMON_DIR` | Override the directory used for browser daemon socket, PID, and authentication token files |
 
 ```bash
 BRIGHTDATA_API_KEY=xxx BRIGHTDATA_UNLOCKER_ZONE=my_zone \

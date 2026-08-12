@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import {describe, it, expect, beforeEach, afterEach} from 'vitest';
+import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
 import {
     load,
     get,
@@ -24,6 +24,7 @@ describe('utils/config', ()=>{
         original_home = process.env['HOME'] ?? '';
         tmp_home = mk_tmp_home();
         fs.mkdirSync(tmp_home, {recursive: true});
+        vi.spyOn(os, 'homedir').mockReturnValue(tmp_home);
         process.env['HOME'] = tmp_home;
         delete process.env['BRIGHTDATA_API_KEY'];
         delete process.env['TEST_ZONE_ENV'];
@@ -31,6 +32,7 @@ describe('utils/config', ()=>{
 
     afterEach(()=>{
         process.env['HOME'] = original_home;
+        vi.restoreAllMocks();
         fs.rmSync(tmp_home, {recursive: true, force: true});
     });
 
