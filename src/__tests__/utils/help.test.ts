@@ -3,7 +3,6 @@ import {Command} from 'commander';
 import {format_examples, add_examples} from '../../utils/help';
 import type {Example} from '../../utils/help';
 import {scraper_command} from '../../commands/scraper';
-import {discover_command} from '../../commands/discover';
 import {search_command} from '../../commands/search';
 import {pipelines_command} from '../../commands/dataset';
 import {scrape_command} from '../../commands/scrape';
@@ -67,7 +66,6 @@ describe('every customer-facing command has Examples in --help', ()=>{
     const cases: [string, Command][] = [
         ['scraper create', scraper_create],
         ['scraper run',    scraper_run],
-        ['discover',       discover_command],
         ['search',         search_command],
         ['pipelines',      pipelines_command],
         ['scrape',         scrape_command],
