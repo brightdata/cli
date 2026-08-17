@@ -210,16 +210,74 @@ describe('commands/login', ()=>{
         expect(mocks.save).toHaveBeenCalledWith({api_key: 'device_key'});
     });
 
-    it('rethrows github flow error when user declines fallback', async()=>{
+    it('exits 1 when user declines github fallback to device flow', async()=>{
         const error = new Error('GitHub auth init failed (HTTP 400)');
         mocks.github_flow.mockRejectedValue(error);
         mocks.rl_question.mockImplementation(
             (_question: string, cb: (answer: string)=>void)=>cb('n')
         );
+        vi.spyOn(process, 'exit').mockImplementation(((
+            code?: string|number|null
+        )=>{
+            throw new Error(`exit:${code}`);
+        }) as never);
 
-        await expect(handle_login({github: true})).rejects.toThrow(error);
+        await expect(handle_login({github: true})).rejects.toThrow('exit:1');
 
         expect(mocks.device_flow).not.toHaveBeenCalled();
         expect(mocks.save).not.toHaveBeenCalled();
+    });
+
+    it('exits 1 when loopback flow fails', async()=>{
+        mocks.loopback_flow.mockRejectedValue(new Error('Timed out waiting for callback'));
+        vi.spyOn(process, 'exit').mockImplementation(((
+            code?: string|number|null
+        )=>{
+            throw new Error(`exit:${code}`);
+        }) as never);
+
+        await expect(handle_login({})).rejects.toThrow('exit:1');
+
+        expect(mocks.save).not.toHaveBeenCalled();
+        expect(console.error).toHaveBeenCalledWith(
+            expect.stringContaining('Timed out waiting for callback')
+        );
+    });
+
+    it('exits 1 when device flow fails', async()=>{
+        mocks.device_flow.mockRejectedValue(new Error('Device code expired'));
+        vi.spyOn(process, 'exit').mockImplementation(((
+            code?: string|number|null
+        )=>{
+            throw new Error(`exit:${code}`);
+        }) as never);
+
+        await expect(handle_login({device: true})).rejects.toThrow('exit:1');
+
+        expect(mocks.save).not.toHaveBeenCalled();
+        expect(console.error).toHaveBeenCalledWith(
+            expect.stringContaining('Device code expired')
+        );
+    });
+
+    it('exits 1 when github fallback to device flow also fails', async()=>{
+        mocks.github_flow.mockRejectedValue(new Error('GitHub auth init failed (HTTP 400)'));
+        mocks.device_flow.mockRejectedValue(new Error('Device code expired'));
+        mocks.rl_question.mockImplementation(
+            (_question: string, cb: (answer: string)=>void)=>cb('y')
+        );
+        vi.spyOn(process, 'exit').mockImplementation(((
+            code?: string|number|null
+        )=>{
+            throw new Error(`exit:${code}`);
+        }) as never);
+
+        await expect(handle_login({github: true})).rejects.toThrow('exit:1');
+
+        expect(mocks.device_flow).toHaveBeenCalled();
+        expect(mocks.save).not.toHaveBeenCalled();
+        expect(console.error).toHaveBeenCalledWith(
+            expect.stringContaining('Device code expired')
+        );
     });
 });

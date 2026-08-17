@@ -119,20 +119,37 @@ const handle_login = async(opts: Login_opts)=>{
                 'Try device flow instead? [y/N] '
             );
             if (!fallback)
-                throw e;
+            {
+                process.exit(1);
+            }
             console.error('Falling back to device flow...');
-            api_key = (await device_flow({customer_id})).trim();
+            try {
+                api_key = (await device_flow({customer_id})).trim();
+            } catch(e2) {
+                console.error(`Error: Authentication failed: ${(e2 as Error).message}`);
+                process.exit(1);
+            }
         }
     }
     else if (opts.device)
     {
         const customer_id = await resolve_customer_id(opts.customerId);
-        api_key = (await device_flow({customer_id})).trim();
+        try {
+            api_key = (await device_flow({customer_id})).trim();
+        } catch(e) {
+            console.error(`Error: Authentication failed: ${(e as Error).message}`);
+            process.exit(1);
+        }
     }
     else
     {
         const customer_id = await resolve_customer_id(opts.customerId);
-        api_key = (await loopback_flow({customer_id})).trim();
+        try {
+            api_key = (await loopback_flow({customer_id})).trim();
+        } catch(e) {
+            console.error(`Error: Authentication failed: ${(e as Error).message}`);
+            process.exit(1);
+        }
     }
 
     save({api_key});
