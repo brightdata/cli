@@ -1,6 +1,7 @@
 import {Command} from 'commander';
 import {ensure_authenticated} from '../utils/auth';
-import {get, post} from '../utils/client';
+import {get_with_status, post} from '../utils/client';
+import type {Response_envelope} from '../utils/client';
 import {print, dim, fail} from '../utils/output';
 import {start as start_spinner} from '../utils/spinner';
 import {parse_timeout, poll_until} from '../utils/polling';
@@ -214,6 +215,36 @@ const extract_status = (result: unknown): string|undefined=>{
     return undefined;
 };
 
+// A snapshot body only parses to an object when the requested format is json.
+// Under csv/ndjson/jsonl the client hands back text, so a status payload would
+// arrive as a string and extract_status would miss it.
+const parse_if_json_text = (body: unknown): unknown=>{
+    if (typeof body != 'string')
+        return body;
+    try {
+        return JSON.parse(body);
+    } catch(_e) {
+        return body;
+    }
+};
+
+// Is this snapshot still building? Three signals, most authoritative first:
+//   1. HTTP 202 — the server says "accepted, not done". Trusted outright.
+//   2. a parsed body carrying a running status.
+//   3. a *text* body that parses to one (the csv/ndjson/jsonl case above).
+// Returns the running status string (so progress output keeps showing
+// starting/building/running rather than a flattened literal), or undefined
+// when the response is the data.
+const snapshot_running_status = (
+    env: Response_envelope
+): string|undefined=>{
+    const status = extract_status(parse_if_json_text(env.body));
+    const is_running = !!status && RUNNING_STATUSES.includes(status);
+    if (env.status == 202)
+        return is_running ? status : 'building';
+    return is_running ? status : undefined;
+};
+
 const handle_pipelines = async(
     dataset_type_raw: string,
     params: string[],
@@ -266,14 +297,15 @@ const handle_pipelines = async(
         }
         console.error(dim(`Triggered collection with snapshot ID:` +
             `${snapshot_id}`));
-        const poll_result = await poll_until<unknown>({
+        const poll_result = await poll_until<Response_envelope>({
             timeout_seconds: timeout,
             fetch_once: ()=>{
                 const endpoint = `${SNAPSHOT_ENDPOINT}/${snapshot_id}`
                     +`?format=${format}`;
-                return get<unknown>(api_key, endpoint, {timing: opts.timing});
+                return get_with_status<unknown>(
+                    api_key, endpoint, {timing: opts.timing});
             },
-            get_status: extract_status,
+            get_status: snapshot_running_status,
             running_statuses: RUNNING_STATUSES,
             timeout_label: 'data',
             on_running: ({attempt, timeout_seconds, status})=>{
@@ -286,7 +318,7 @@ const handle_pipelines = async(
         console.error(dim(
             `Data received after ${poll_result.attempts} attempts`
         ));
-        const result = poll_result.result;
+        const result = poll_result.result.body;
         const cleaned_result = format == 'json' ? strip_nulls(result) : result;
         print(cleaned_result, {
             json: opts.json,
@@ -333,4 +365,4 @@ add_examples(pipelines_command, [
     },
 ]);
 
-export {pipelines_command, handle_pipelines};
+export {pipelines_command, handle_pipelines, snapshot_running_status};
