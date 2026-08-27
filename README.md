@@ -30,6 +30,7 @@
 | `brightdata scraper heal` | Fix an existing scraper in place via AI self-healing (stops at an approval gate) |
 | `brightdata scraper approve` | Approve (or reject) a self-healing fix that is awaiting approval |
 | `brightdata pipelines` | Extract structured data from 40+ platforms (Amazon, LinkedIn, TikTok…) |
+| `brightdata marketplace` | Query Bright Data's pre-collected datasets — filter records that already exist |
 | `brightdata browser` | Control a real browser via Bright Data's Scraping Browser — navigate, snapshot, click, type, and more |
 | `brightdata zones` | List and inspect your Bright Data proxy zones |
 | `brightdata budget` | View account balance and per-zone cost & bandwidth |
@@ -56,6 +57,7 @@
   - [scraper heal](#scraper-heal)
   - [scraper approve](#scraper-approve)
   - [pipelines](#pipelines)
+  - [marketplace](#marketplace)
   - [browser](#browser)
   - [status](#status)
   - [zones](#zones)
@@ -652,6 +654,82 @@ brightdata pipelines youtube_comments "https://youtube.com/watch?v=..." 50
 See [Dataset Types Reference](#dataset-types-reference) for the full list.
 
 ---
+
+### `marketplace`
+
+Query Bright Data's **Dataset Marketplace** — data that has already been collected. This is the counterpart to [`pipelines`](#pipelines), and the distinction matters for both speed and cost:
+
+| | `pipelines` | `marketplace` |
+|---|---|---|
+| What it does | **Collects new** data from URLs/seeds you supply | **Queries** records Bright Data already holds |
+| Billing | Per record scraped | Per record returned by the query |
+| Latency | A crawl runs | A filter runs over stored data |
+
+```bash
+brightdata marketplace list [--featured] [--search <text>]
+brightdata marketplace fields <dataset>
+brightdata marketplace filter --dataset <name> --filter '<json>' --records-limit <n>
+brightdata marketplace status <snapshot-id>
+brightdata marketplace download <snapshot-id> [--wait]
+```
+
+**Finding a dataset.** The catalogue holds ~1,750 datasets, so `list` has two filters. `--featured` shows the 48 with short names you can type; `--search` finds anything else, and you pass its `gd_` id to the other subcommands with `--dataset-id`.
+
+```bash
+brightdata marketplace list --featured
+brightdata marketplace list --search zillow
+```
+
+**Seeing what you can filter on** — before spending anything:
+
+```bash
+brightdata marketplace fields linkedin_people_profiles
+# field          type    required  description
+# about          text              A concise profile summary...
+# city           text              Geographical location of the user
+```
+
+**Querying.** The filter is a JSON tree, sent to the API as-is:
+
+```bash
+brightdata marketplace filter --dataset linkedin_company_profiles \
+  --filter '{"name":"industry","operator":"=","value":"Technology"}' \
+  --records-limit 1000 --format jsonl -o tech.jsonl
+
+# combine conditions with and/or
+--filter '{"operator":"and","filters":[
+  {"name":"industry","operator":"=","value":"Technology"},
+  {"name":"followers","operator":">","value":10000}]}'
+```
+
+> **`--records-limit` is required.** Queries are billed by records returned, some datasets hold hundreds of millions of rows, and the cost is only known once the query has run — so the CLI makes you state a cap rather than letting an omission become an expensive one.
+
+**Submit now, collect later:**
+
+```bash
+brightdata marketplace filter --dataset x_twitter_posts \
+  --filter '{"name":"likes","operator":">","value":10000}' \
+  --records-limit 500 --async
+# → Snapshot ID: s_abc123
+
+brightdata marketplace status s_abc123      # status, records, size, cost
+brightdata marketplace download s_abc123 --wait
+```
+
+`download` exit codes: `0` data returned · `1` error · `3` snapshot not ready yet (retry later, or use `--wait`).
+
+| Flag | Applies to | Description |
+|---|---|---|
+| `--featured` / `--search <text>` | `list` | Filter the catalogue |
+| `--dataset <name>` | `filter` | One of the 48 named datasets |
+| `--dataset-id <gd_…>` | `filter` | Any dataset id from `list` |
+| `--filter <json>` / `--filter-file <path>` | `filter` | The filter tree |
+| `--records-limit <n>` | `filter` | **Required** — cap on records returned |
+| `--async` | `filter` | Submit only; print the snapshot ID |
+| `--wait` | `download` | Poll until ready, then download |
+| `--format <fmt>` | `filter`, `download` | `json` · `jsonl` · `csv` (no `ndjson`) |
+| `-o, --output <path>` / `--json` / `--pretty` | all | Output handling |
+
 
 ### `browser`
 
