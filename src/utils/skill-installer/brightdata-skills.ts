@@ -26,6 +26,15 @@ const BRIGHTDATA_SKILLS: BrightDataSkill[] = [
         repoPath: 'skills/scrape',
     },
     {
+        name: 'datasets',
+        description: 'Buy a ready dataset from the Dataset Marketplace and '
+            +'download it, instead of scraping',
+        skillMdUrl: 'https://raw.githubusercontent.com/brightdata/skills/'
+            +'main/skills/datasets/SKILL.md',
+        githubPath: 'brightdata/skills/datasets',
+        repoPath: 'skills/datasets',
+    },
+    {
         name: 'fetch',
         description: 'Fetch one URL through Web Unlocker as markdown, HTML, '
             +'or a screenshot',
