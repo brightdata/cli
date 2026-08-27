@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {Command} from 'commander';
+import {assert_supported_node} from './utils/node-version';
 import {maybe_run_browser_daemon} from './browser/entrypoint';
 import {login_command} from './commands/login';
 import {logout_command} from './commands/logout';
@@ -61,6 +62,7 @@ const build_program = ()=>{
 };
 
 const main = async()=>{
+    assert_supported_node();
     if (await maybe_run_browser_daemon())
         return;
     build_program().parse(process.argv);

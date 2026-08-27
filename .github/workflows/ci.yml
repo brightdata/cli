@@ -1,0 +1,33 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  check:
+    name: Type-check & test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20.17.0 is pinned deliberately: it predates the require(ESM) backport
+        # (Node 20.19 / 22.12), so it is the oldest runtime our declared
+        # `engines: >=20.0.0` still promises to support. Testing only the latest
+        # 20.x would silently pass code that crashes for those users.
+        node: ['20.17.0', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run type-check
+      - run: pnpm test
+      # Unit tests cannot execute the dynamic-import loader (Vitest rejects the
+      # `new Function('return import()')` form), so the built CLI is smoke-run
+      # here — this is what actually catches an ERR_REQUIRE_ESM regression.
+      - run: pnpm run build
+      - run: node dist/index.js --version
+      - run: node dist/index.js pipelines list
