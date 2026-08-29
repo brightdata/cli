@@ -63,7 +63,14 @@ const resolve = (
 const resolve_api_key = (cli_val: string|undefined): string|undefined=>{
     if (cli_val)
         return cli_val;
-    const env_val = process.env['BRIGHTDATA_API_KEY'];
+    // BRIGHTDATA_API_KEY is the documented variable, but the Bright Data MCP
+    // and several reference SDKs export the same secret as BRIGHTDATA_API_TOKEN
+    // (and some setups use a bare API_TOKEN). Accept those as fallbacks so the
+    // CLI authenticates from the same environment as the rest of the toolchain
+    // instead of failing with "No API key found" on the first call.
+    const env_val = process.env['BRIGHTDATA_API_KEY']
+        || process.env['BRIGHTDATA_API_TOKEN']
+        || process.env['API_TOKEN'];
     if (env_val)
         return env_val;
     return undefined;

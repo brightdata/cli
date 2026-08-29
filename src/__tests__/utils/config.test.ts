@@ -27,6 +27,8 @@ describe('utils/config', ()=>{
         vi.spyOn(os, 'homedir').mockReturnValue(tmp_home);
         process.env['HOME'] = tmp_home;
         delete process.env['BRIGHTDATA_API_KEY'];
+        delete process.env['BRIGHTDATA_API_TOKEN'];
+        delete process.env['API_TOKEN'];
         delete process.env['TEST_ZONE_ENV'];
     });
 
@@ -65,5 +67,32 @@ describe('utils/config', ()=>{
         process.env['BRIGHTDATA_API_KEY'] = 'from_env_key';
         expect(resolve_api_key('from_cli_key')).toBe('from_cli_key');
         expect(resolve_api_key(undefined)).toBe('from_env_key');
+    });
+
+    it('resolve_api_key falls back to BRIGHTDATA_API_TOKEN, then API_TOKEN',
+        ()=>{
+            // no BRIGHTDATA_API_KEY set -> use the MCP/SDK token var
+            process.env['BRIGHTDATA_API_TOKEN'] = 'from_token';
+            expect(resolve_api_key(undefined)).toBe('from_token');
+
+            // BRIGHTDATA_API_KEY still wins over the token fallback
+            process.env['BRIGHTDATA_API_KEY'] = 'from_key';
+            expect(resolve_api_key(undefined)).toBe('from_key');
+
+            // API_TOKEN is the last resort
+            delete process.env['BRIGHTDATA_API_KEY'];
+            delete process.env['BRIGHTDATA_API_TOKEN'];
+            process.env['API_TOKEN'] = 'from_api_token';
+            expect(resolve_api_key(undefined)).toBe('from_api_token');
+        });
+
+    it('resolve_api_key ignores empty-string env vars', ()=>{
+        process.env['BRIGHTDATA_API_KEY'] = '';
+        process.env['BRIGHTDATA_API_TOKEN'] = 'real_token';
+        expect(resolve_api_key(undefined)).toBe('real_token');
+    });
+
+    it('resolve_api_key returns undefined when nothing is set', ()=>{
+        expect(resolve_api_key(undefined)).toBeUndefined();
     });
 });
