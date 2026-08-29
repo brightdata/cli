@@ -88,6 +88,7 @@ import {
     format_heal_summary,
     resume_and_poll,
     handle_approve_scraper,
+    format_run_error,
 } from '../../commands/scraper';
 
 describe('commands/scraper', ()=>{
@@ -771,16 +772,11 @@ describe('commands/scraper', ()=>{
 
         it('exits when trigger returns no response_id', async()=>{
             mocks.post.mockResolvedValueOnce({});
-            const exit = vi.spyOn(process, 'exit')
-                .mockImplementation(()=>undefined as never);
-            const error = vi.spyOn(console, 'error')
-                .mockImplementation(()=>{});
-            await handle_run_scraper('c_abc', 'https://x.com', {});
-            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            await expect(handle_run_scraper('c_abc', 'https://x.com', {}))
+                .rejects.toThrow();
+            const msg = String(mocks.fail.mock.calls[0][0]);
             expect(msg).toContain('response_id');
             expect(msg).toContain('c_abc');
-            exit.mockRestore();
-            error.mockRestore();
         });
     });
 
@@ -820,17 +816,11 @@ describe('commands/scraper', ()=>{
             stub_fetch(202,
                 JSON.stringify({error: 'crawl_results_timeout',
                     response_id: 'r_late'}));
-            const exit = vi.spyOn(process, 'exit')
-                .mockImplementation(()=>undefined as never);
-            const error = vi.spyOn(console, 'error')
-                .mockImplementation(()=>{});
-            await handle_run_scraper('c_abc', 'https://x.com',
-                {sync: true});
-            const msg = error.mock.calls.map(c=>String(c[0])).join('\n');
+            await expect(handle_run_scraper('c_abc', 'https://x.com',
+                {sync: true})).rejects.toThrow();
+            const msg = String(mocks.fail.mock.calls[0][0]);
             expect(msg).toContain('r_late');
             expect(msg).toContain('Re-run without --sync');
-            exit.mockRestore();
-            error.mockRestore();
         });
 
         it('honors --sync-timeout', async()=>{
@@ -2192,6 +2182,32 @@ describe('commands/scraper', ()=>{
                 .find(c=>c.name()=='heal')!;
             expect(heal.options.map(o=>o.long))
                 .toContain('--auto-save');
+        });
+    });
+});
+
+describe('format_run_error', ()=>{
+    it('returns the raw message (no JSON) when no machine format is set',
+        ()=>{
+            expect(format_run_error('boom', {})).toEqual(
+                {json: false, text: 'boom'});
+        });
+
+    it('returns a compact JSON error object under --json', ()=>{
+        expect(format_run_error('boom', {json: true})).toEqual(
+            {json: true, text: '{"error":"boom"}'});
+    });
+
+    it('strips the "Error:" prefix and extra lines in the JSON payload',
+        ()=>{
+            expect(format_run_error('Error: bad thing\nstack', {json: true}))
+                .toEqual({json: true, text: '{"error":"bad thing"}'});
+        });
+
+    it('pretty-prints the JSON error under --pretty', ()=>{
+        expect(format_run_error('boom', {pretty: true})).toEqual({
+            json: true,
+            text: JSON.stringify({error: 'boom'}, null, 2),
         });
     });
 });
