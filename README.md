@@ -24,7 +24,6 @@
 |---|---|
 | `brightdata scrape` | Scrape any URL — bypasses CAPTCHAs, JS rendering, anti-bot protections |
 | `brightdata search` | Google / Bing / Yandex search with structured JSON output |
-| `brightdata discover` | AI-powered web discovery - find and rank results by intent with optional full-page content |
 | `brightdata scraper create` | Build a Bright Data scraper from a natural-language description using AI |
 | `brightdata scraper run` | Run a Bright Data scraper on a URL and return the data |
 | `brightdata scraper heal` | Fix an existing scraper in place via AI self-healing (stops at an approval gate) |
@@ -50,7 +49,6 @@
   - [init](#init)
   - [scrape](#scrape)
   - [search](#search)
-  - [discover](#discover)
   - [scraper create](#scraper-create)
   - [scraper run](#scraper-run)
   - [scraper heal](#scraper-heal)
@@ -279,60 +277,6 @@ brightdata search "open source scraping" --json | jq -r '.organic[].link'
 
 # Search Bing
 brightdata search "bright data pricing" --engine bing
-```
-
----
-
-### `discover`
-
-AI-powered web discovery. Submit a query with optional intent, and Bright Data finds, ranks, and optionally extracts full-page content for each result.
-
-```bash
-brightdata discover <query> [options]
-```
-
-| Flag | Description |
-|---|---|
-| `--intent <text>` | AI intent to evaluate and rank result relevance |
-| `--country <code>` | ISO country code (default: `US`) |
-| `--city <name>` | City for localized results (e.g. `"New York"`) |
-| `--language <code>` | Language code (default: `en`) |
-| `--num-results <n>` | Number of results to return |
-| `--filter-keywords <words>` | Comma-separated keywords that must appear in results |
-| `--include-content` | Include full page content in each result |
-| `--no-remove-duplicates` | Keep duplicate results |
-| `--start-date <date>` | Only content updated from date (`YYYY-MM-DD`) |
-| `--end-date <date>` | Only content updated until date (`YYYY-MM-DD`) |
-| `--timeout <seconds>` | Polling timeout (default: `600`) |
-| `-o, --output <path>` | Write output to file |
-| `--json` / `--pretty` | JSON output (raw / indented) |
-| `-k, --api-key <key>` | Override API key |
-
-**Examples**
-
-```bash
-# Basic discovery — table output
-brightdata discover "AI trends"
-
-# With AI intent for relevance ranking
-brightdata discover "AI trends" \
-  --intent "Prioritize institutional reports for VC research"
-
-# Include full page content as markdown
-brightdata discover "AI trends" --include-content --num-results 5
-
-# Geo-targeted with date range
-brightdata discover "best restaurants" --country US --city "New York" \
-  --start-date 2025-01-01 --end-date 2025-12-31
-
-# Filter results by keywords
-brightdata discover "generative AI SaaS" --filter-keywords "revenue,SaaS"
-
-# JSON output to file
-brightdata discover "AI trends" --num-results 10 --pretty -o results.json
-
-# Pipe-friendly — redirected stdout outputs JSON automatically
-brightdata discover "AI trends" --include-content --num-results 3 > results.json
 ```
 
 ---
