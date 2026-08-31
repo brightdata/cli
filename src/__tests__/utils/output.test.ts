@@ -46,6 +46,24 @@ describe('utils/output.serialize csv', ()=>{
         const lines = out.trim().split('\n');
         expect(lines[1]).toBe('1,"{""tag"":""x""}"');
     });
+    it('sanitizes spreadsheet formula prefixes in CSV string cells', ()=>{
+        const rows = [{
+            equals: '=1+1',
+            plus: '+cmd',
+            minus: '-SUM(A1:A2)',
+            at: '@SUM(A1:A2)',
+        }];
+        const out = serialize(rows, 'csv');
+        const lines = out.trim().split('\n');
+        expect(lines[1]).toBe(
+            "'=1+1,'+cmd,'-SUM(A1:A2),'@SUM(A1:A2)");
+    });
+    it('does not sanitize numeric values', ()=>{
+        const out = serialize([{value: -100}], 'csv');
+        const lines = out.trim().split('\n');
+
+        expect(lines[1]).toBe('-100');
+    });
 });
 
 describe('utils/output.serialize markdown', ()=>{

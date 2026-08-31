@@ -84,10 +84,18 @@ const cell_to_string = (val: unknown): string=>{
     return JSON.stringify(val);
 };
 
+const sanitize_csv_cell = (s: string): string=>{
+    if (/^[=+\-@\t\r]/.test(s))
+        return "'" + s;
+    return s;
+};
+
 const csv_escape = (val: unknown): string=>{
-    const s = cell_to_string(val);
+    let s = cell_to_string(val);
+    if (typeof val == 'string')
+        s = sanitize_csv_cell(s);
     if (/[",\r\n]/.test(s))
-        return '"'+s.replace(/"/g, '""')+'"';
+        return '"' + s.replace(/"/g, '""') + '"';
     return s;
 };
 
