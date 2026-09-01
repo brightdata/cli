@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import {get as get_config} from './config';
+
 const is_tty = process.stdout.isTTY === true;
 
 const ansi = (code: string, text: string)=>
@@ -85,14 +87,17 @@ const cell_to_string = (val: unknown): string=>{
 };
 
 const sanitize_csv_cell = (s: string): string=>{
-    if (/^[=+\-@\t\r]/.test(s))
+    const trimmed = s.trim();
+    if (/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(trimmed))
+        return s;
+    if (/^[\s\u00a0]*[=+\-@]/.test(s))
         return "'" + s;
     return s;
 };
 
 const csv_escape = (val: unknown): string=>{
     let s = cell_to_string(val);
-    if (typeof val == 'string')
+    if (typeof val == 'string' && get_config('sanitize_csv') !== false)
         s = sanitize_csv_cell(s);
     if (/[",\r\n]/.test(s))
         return '"' + s.replace(/"/g, '""') + '"';
