@@ -1,5 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import { stripVTControlCharacters } from 'util';
+
+const terminal_safe = (val: unknown): string=>
+    stripVTControlCharacters(String(val));
 
 const is_tty = process.stdout.isTTY === true;
 
@@ -183,7 +187,8 @@ const print = (data: unknown, opts: Print_opts = {})=>{
     }
     if (!is_tty && fmt == 'raw')
         fmt = typeof data == 'string' ? 'raw' : 'json';
-    process.stdout.write(serialize(data, fmt)+'\n');
+    const content = serialize(data, fmt);
+    process.stdout.write(terminal_safe(content) + '\n');
 };
 
 const print_table = (rows: Record<string, unknown>[], cols: string[])=>{
