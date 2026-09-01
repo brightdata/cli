@@ -153,4 +153,41 @@ describe('utils/output.print writes correct format from extension', ()=>{
         const content = fs.readFileSync(out, 'utf8');
         expect(JSON.parse(content)).toEqual([{a: 1}]);
     });
+    it('-o file preserves terminal escape sequences', ()=>{
+        const out = make_tmp('.txt');
+        const content = 'hello\x1b[31mRED\x1b[0m';
+        print(content, {output: out});
+        expect(fs.readFileSync(out, 'utf8')).toBe(content);
+    });
+});
+
+describe('utils/output.print terminal sanitization', ()=>{
+    let stdout_write: ReturnType<typeof vi.spyOn>;
+    beforeEach(()=>{
+        stdout_write = vi.spyOn(process.stdout, 'write')
+            .mockImplementation(()=>true);
+    });
+    afterEach(()=>{
+        vi.restoreAllMocks();
+    });
+    it('strips terminal escape sequences before writing to stdout', ()=>{
+        const malicious = 'hello'
+            + '\x1b[2J'
+            + '\x1b[31mRED\x1b[0m'
+            + '\x1b]0;Title-pwn\x07'
+            + 'world';
+        print(malicious);
+        const output = stdout_write.mock.calls
+            .map((call: unknown[])=>String(call[0]))
+            .join('');
+        expect(output).toBe('helloREDworld\n');
+        expect(output).not.toContain('\x1b');
+    });
+    it('keeps normal stdout content unchanged', ()=>{
+        print('hello world');
+        const output = stdout_write.mock.calls
+            .map((call: unknown[])=>String(call[0]))
+            .join('');
+        expect(output).toBe('hello world\n');
+    });
 });
