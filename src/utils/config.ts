@@ -9,11 +9,17 @@ type Config = {
     default_zone_serp?: string;
     default_format?: string;
     api_url?: string;
+    sanitize_csv?: boolean;
 };
+
+type String_config_key = {
+    [K in keyof Config]-?: Config[K] extends string|undefined ? K : never
+}[keyof Config];
 
 const DEFAULTS: Config = {
     default_format: 'markdown',
     api_url: 'https://api.brightdata.com',
+    sanitize_csv: true,
 };
 
 const load = (): Config=>{
@@ -35,12 +41,12 @@ const save = (config: Config)=>{
     fs.writeFileSync(get_config_path(), JSON.stringify(config, null, 4));
 };
 
-const get = (key: keyof Config): string|undefined=>{
+const get = <K extends keyof Config>(key: K): Config[K]=>{
     const config = load();
     return config[key];
 };
 
-const set = (key: keyof Config, value: string)=>{
+const set = <K extends keyof Config>(key: K, value: Config[K])=>{
     const config = load();
     config[key] = value;
     save(config);
@@ -50,7 +56,7 @@ const set = (key: keyof Config, value: string)=>{
 const resolve = (
     cli_val: string|undefined,
     env_key: string,
-    config_key: keyof Config
+    config_key: String_config_key
 ): string|undefined=>{
     if (cli_val)
         return cli_val;
