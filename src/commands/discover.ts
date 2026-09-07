@@ -147,7 +147,7 @@ const handle_discover = async(query: string, opts: Discover_opts)=>{
         }
         const print_opts = {json: opts.json, pretty: opts.pretty,
             output: opts.output};
-        if (opts.json || opts.pretty || opts.output || !is_tty)
+        if (opts.json || opts.pretty || opts.output || !is_tty())
         {
             print(response, print_opts);
             return;

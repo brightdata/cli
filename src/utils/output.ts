@@ -3,23 +3,30 @@ import path from 'path';
 import { stripVTControlCharacters } from 'util';
 
 const terminal_safe = (val: unknown): string=>
-    stripVTControlCharacters(String(val));
+    stripVTControlCharacters(String(val))
+        .replace(/\r\n?/g, '\n')
+        .replace(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, '');
 
-const is_tty = process.stdout.isTTY === true;
+const is_tty = ()=>process.stdout.isTTY === true;
 
 const ansi = (code: string, text: string)=>
-    is_tty ? `\x1b[${code}m${text}\x1b[0m` : text;
+    is_tty() ? `\x1b[${code}m${text}\x1b[0m` : text;
 
 const green  = (s: string)=>ansi('32', s);
 const red    = (s: string)=>ansi('31', s);
 const yellow = (s: string)=>ansi('33', s);
 const dim    = (s: string)=>ansi('2', s);
 
-const success = (msg: string)=>console.error(green(`✓ ${msg}`));
-const warn    = (msg: string)=>console.error(yellow(`⚠ ${msg}`));
-const info    = (msg: string)=>console.error(dim(msg));
-const fail    = (msg: string)=>{ console.error(red(`✗ ${msg}`));
-    process.exit(1); };
+const success = (msg: string)=>
+    console.error(green(`✓ ${terminal_safe(msg)}`));
+const warn = (msg: string)=>
+    console.error(yellow(`⚠ ${terminal_safe(msg)}`));
+const info = (msg: string)=>
+    console.error(dim(terminal_safe(msg)));
+const fail = (msg: string)=>{
+    console.error(red(`✗ ${terminal_safe(msg)}`));
+    process.exit(1);
+};
 
 type Output_format = 'markdown'|'json'|'pretty'|'html'|'csv'|'raw';
 
@@ -185,27 +192,44 @@ const print = (data: unknown, opts: Print_opts = {})=>{
         info(`Output written to ${opts.output}`);
         return;
     }
-    if (!is_tty && fmt == 'raw')
+    if (!is_tty() && fmt == 'raw')
         fmt = typeof data == 'string' ? 'raw' : 'json';
     const content = serialize(data, fmt);
-    process.stdout.write(terminal_safe(content) + '\n');
+    process.stdout.write(
+        (is_tty() ? terminal_safe(content) : content) + '\n'
+    );
 };
 
 const print_table = (rows: Record<string, unknown>[], cols: string[])=>{
     if (!rows.length)
         return;
-    const widths = cols.map(c=>
-        Math.max(c.length, ...rows.map(r=>String(r[c] ?? '').length))
+    const tty = is_tty();
+    const safe_value = (value: unknown): string=>{
+        const text = String(value ?? '');
+        return tty
+            ? terminal_safe(text).replace(/\n/g, ' ')
+            : text;
+    };
+    const safe_cols = cols.map(safe_value);
+    const safe_rows = rows.map(r=>
+        cols.map(c=>safe_value(r[c])));
+    const widths = safe_cols.map((c, i)=>
+        Math.max(
+            c.length,
+            ...safe_rows.map(row=>row[i].length),
+        )
     );
     const divider = widths.map(w=>'-'.repeat(w)).join('-+-');
-    const header  = cols.map((c, i)=>c.padEnd(widths[i])).join(' | ');
+    const header = safe_cols.map((c, i)=>
+        c.padEnd(widths[i])).join(' | ');
     console.log(dim(header));
     console.log(dim(divider));
-    for (let i=0; i<rows.length; i++)
+    for (const row of safe_rows)
     {
-        const row = cols.map((c, j)=>String(rows[i][c] ?? '').
-            padEnd(widths[j]));
-        console.log(row.join(' | '));
+        console.log(
+            row.map((cell, i)=>
+                cell.padEnd(widths[i])).join(' | ')
+        );
     }
 };
 

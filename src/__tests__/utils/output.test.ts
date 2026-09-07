@@ -2,7 +2,7 @@ import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import {serialize, format_from_ext, print} from '../../utils/output';
+import {serialize, format_from_ext, print, print_table} from '../../utils/output';
 
 describe('utils/output.serialize csv', ()=>{
     it('serializes array of flat objects as RFC 4180 CSV with header row', ()=>{
@@ -163,31 +163,145 @@ describe('utils/output.print writes correct format from extension', ()=>{
 
 describe('utils/output.print terminal sanitization', ()=>{
     let stdout_write: ReturnType<typeof vi.spyOn>;
+    const original_is_tty = Object.getOwnPropertyDescriptor(
+        process.stdout,
+        'isTTY',
+    );
+    const set_tty = (value: boolean)=>{
+        Object.defineProperty(process.stdout, 'isTTY', {
+            configurable: true,
+            value,
+        });
+    };
     beforeEach(()=>{
         stdout_write = vi.spyOn(process.stdout, 'write')
             .mockImplementation(()=>true);
     });
     afterEach(()=>{
         vi.restoreAllMocks();
+        if (original_is_tty)
+        {
+            Object.defineProperty(
+                process.stdout,
+                'isTTY',
+                original_is_tty,
+            );
+        }
+        else
+            delete (process.stdout as {isTTY?: boolean}).isTTY;
     });
-    it('strips terminal escape sequences before writing to stdout', ()=>{
+    it('sanitizes terminal escape sequences on TTY stdout', ()=>{
+        set_tty(true);
         const malicious = 'hello'
             + '\x1b[2J'
             + '\x1b[31mRED\x1b[0m'
             + '\x1b]0;Title-pwn\x07'
             + 'world';
+
         print(malicious);
         const output = stdout_write.mock.calls
             .map((call: unknown[])=>String(call[0]))
             .join('');
         expect(output).toBe('helloREDworld\n');
         expect(output).not.toContain('\x1b');
+        expect(output).not.toContain('\x07');
     });
-    it('keeps normal stdout content unchanged', ()=>{
+    it('keeps normal TTY stdout content unchanged', ()=>{
+        set_tty(true);
         print('hello world');
         const output = stdout_write.mock.calls
             .map((call: unknown[])=>String(call[0]))
             .join('');
         expect(output).toBe('hello world\n');
+    });
+    it('preserves row stdout for non-TTY stdout', ()=>{
+        set_tty(false);
+        const content = 'hello\x1b[31mRED\x1b[0m';
+        print(content);
+        const output = stdout_write.mock.calls
+            .map((call: unknown[])=>String(call[0]))
+            .join('');
+        expect(output).toBe(content + '\n');
+    });
+    it('preserves structured output for non-TTY stdout', ()=>{
+        set_tty(false);
+        const data = [{
+            value: 'hello\x1b[31mRED\x1b[0m',
+        }];
+        print(data, {format: 'json'});
+        const output = stdout_write.mock.calls
+            .map((call: unknown[])=>String(call[0]))
+            .join('');
+        expect(output).toBe(JSON.stringify(data) + '\n');
+    });
+    it('removes standalone terminal control characters on TTY', ()=>{
+        set_tty(true);
+        print('a\x07b\bcd\ref');
+        const output = stdout_write.mock.calls
+            .map((call: unknown[])=>String(call[0]))
+            .join('');
+        expect(output).toBe('abcd\nef\n');
+        expect(output).not.toContain('\x07');
+        expect(output).not.toContain('\b');
+        expect(output).not.toContain('\r');
+    });
+});
+
+describe('utils/output.print_table terminal sanitization', ()=>{
+    const original_is_tty = Object.getOwnPropertyDescriptor(
+        process.stdout,
+        'isTTY',
+    );
+    const set_tty = (value: boolean)=>{
+        Object.defineProperty(process.stdout, 'isTTY', {
+            configurable: true,
+            value,
+        });
+    };
+    afterEach(()=>{
+        vi.restoreAllMocks();
+        if (original_is_tty)
+        {
+            Object.defineProperty(
+                process.stdout,
+                'isTTY',
+                original_is_tty,
+            );
+        }
+        else
+            delete (process.stdout as {isTTY?: boolean}).isTTY;
+    });
+    it('sanitizes malicious values passed through print_table', ()=>{
+        set_tty(true);
+        const log = vi.spyOn(console, 'log')
+            .mockImplementation(()=>{});
+        print_table(
+            [{
+                title: 'hello\x1b[31mRED\x1b[0m',
+                url: 'before\x1b[2Jafter',
+            }],
+            ['title', 'url'],
+        );
+        const output = log.mock.calls
+            .map((call: unknown[])=>call.map(String).join(' '))
+            .join('\n');
+        expect(output).toContain('helloRED');
+        expect(output).toContain('beforeafter');
+        expect(output).not.toContain('\x1b[31m');
+        expect(output).not.toContain('\x1b[2J');
+    });
+    it('flattens multiline table cells before printing', ()=>{
+        set_tty(true);
+        const log = vi.spyOn(console, 'log')
+            .mockImplementation(()=>{});
+        print_table(
+            [{title: 'line1\nline2'}],
+            ['title'],
+        );
+        const output = log.mock.calls
+            .map((call: unknown[])=>call.map(String).join(' '))
+            .join('\n');
+        expect(output).toContain('line1 line2');
+        expect(output).not.toContain('line1\nline2');
     });
 });

@@ -15,8 +15,8 @@ import {
 } from '../utils/output';
 import {start as start_spinner} from '../utils/spinner';
 
-const white = (text: string)=>is_tty ? `\x1b[37m${text}\x1b[0m` : text;
-const blue = (text: string)=>is_tty ? `\x1b[34m${text}\x1b[0m` : text;
+const white = (text: string)=>is_tty() ? `\x1b[37m${text}\x1b[0m` : text;
+const blue = (text: string)=>is_tty() ? `\x1b[34m${text}\x1b[0m` : text;
 const BANNER_SPLIT_COL = 62;
 
 type Init_opts = {
@@ -95,7 +95,7 @@ const prompt_zone = async(
     zone_names: string[],
     suggested: string|undefined
 ): Promise<string|undefined>=>{
-    if (!is_tty)
+    if (!is_tty())
         return suggested;
     if (!zone_names.length)
     {
@@ -129,7 +129,7 @@ const prompt_zone = async(
 
 const prompt_default_format = async(current: string|undefined): 
     Promise<string>=>{
-    if (!is_tty)
+    if (!is_tty())
         return current ?? 'markdown';
     const selected = await select({
         message: 'Choose default output format',
@@ -161,7 +161,7 @@ const resolve_initial_api_key = (flag_key: string|undefined):
 const prompt_api_key = async(
     initial: string|undefined
 ): Promise<string|undefined>=>{
-    if (!is_tty)
+    if (!is_tty())
         return initial;
     if (initial)
     {
@@ -236,7 +236,7 @@ const show_quick_start = (
 };
 
 const maybe_show_install_hint = async()=>{
-    if (!is_tty)
+    if (!is_tty())
         return;
     const show = await confirm({
         message: 'Show global install command?',
@@ -287,7 +287,7 @@ const handle_init = async(opts: Init_opts)=>{
     );
     unlocker_zone = pick_best_zone(zone_names, unlocker_zone);
     serp_zone = pick_best_zone(zone_names, serp_zone ?? unlocker_zone);
-    if (is_tty)
+    if (is_tty())
     {
         unlocker_zone = await prompt_zone(
             'Select default Web Unlocker zone',

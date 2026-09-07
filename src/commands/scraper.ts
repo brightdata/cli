@@ -279,7 +279,7 @@ const build_heal_envelope = (params: {
 const wants_machine_output = (
     opts: {json?: boolean; pretty?: boolean; output?: string}
 ): boolean=>
-    !!(opts.json || opts.pretty || opts.output) || !is_tty;
+    !!(opts.json || opts.pretty || opts.output) || !is_tty();
 
 const emit_create_output = (
     envelope: Create_envelope,
