@@ -8,7 +8,7 @@ type Spinner = {
 };
 
 const start = (msg: string): Spinner=>{
-    if (!is_tty)
+    if (!is_tty())
     {
         process.stderr.write(msg+'\n');
         return {stop: ()=>{}};
