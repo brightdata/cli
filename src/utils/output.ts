@@ -106,9 +106,9 @@ const sanitize_csv_cell = (s: string): string=>{
     return s;
 };
 
-const csv_escape = (val: unknown): string=>{
+const csv_escape = (val: unknown, sanitize: boolean): string=>{
     let s = cell_to_string(val);
-    if (typeof val == 'string' && get_config('sanitize_csv') !== false)
+    if (typeof val == 'string' && sanitize)
         s = sanitize_csv_cell(s);
     if (/[",\r\n]/.test(s))
         return '"' + s.replace(/"/g, '""') + '"';
@@ -125,9 +125,10 @@ const serialize_csv = (data: unknown): string=>{
             +'to JSON. Use --json to silence this warning.');
         return JSON.stringify(data, null, 2);
     }
+    const sanitize = get_config('sanitize_csv') !== false;
     const keys = collect_keys(rows);
-    const header = keys.map(csv_escape).join(',');
-    const body = rows.map(r=>keys.map(k=>csv_escape(r[k])).join(',')).join('\n');
+    const header = keys.map(k=>csv_escape(k, sanitize)).join(',');
+    const body = rows.map(r=>keys.map(k=>csv_escape(r[k], sanitize)).join(',')).join('\n');
     return header+'\n'+body+'\n';
 };
 

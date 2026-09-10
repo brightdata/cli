@@ -95,6 +95,15 @@ describe('utils/output.serialize csv', ()=>{
         expect(out).toContain('=1+1');
         expect(out).not.toContain("'=1+1");
     });
+    it('reads sanitize_csv config once per CSV serialization', ()=>{
+        serialize([
+            {a: '=1+1', b: '+cmd'},
+            {a: '-SUM(A1:A2)', b: '@SUM(A1:A2)'},
+        ], 'csv');
+
+        expect(mocks.get_config).toHaveBeenCalledTimes(1);
+        expect(mocks.get_config).toHaveBeenCalledWith('sanitize_csv');
+    });
 });
 
 describe('utils/output.serialize markdown', ()=>{
