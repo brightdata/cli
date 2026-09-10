@@ -290,18 +290,19 @@ describe('utils/output.print_table terminal sanitization', ()=>{
         expect(output).not.toContain('\x1b[31m');
         expect(output).not.toContain('\x1b[2J');
     });
-    it('flattens multiline table cells before printing', ()=>{
-        set_tty(true);
+    it('flattens table cells for non-TTY output', ()=>{
+        set_tty(false);
         const log = vi.spyOn(console, 'log')
             .mockImplementation(()=>{});
         print_table(
-            [{title: 'line1\nline2'}],
+            [{title: 'line1\nline2\tvalue'}],
             ['title'],
         );
         const output = log.mock.calls
             .map((call: unknown[])=>call.map(String).join(' '))
             .join('\n');
-        expect(output).toContain('line1 line2');
+        expect(output).toContain('line1 line2 value');
         expect(output).not.toContain('line1\nline2');
+        expect(output).not.toContain('\t');
     });
 });

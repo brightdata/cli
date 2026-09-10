@@ -206,9 +206,8 @@ const print_table = (rows: Record<string, unknown>[], cols: string[])=>{
     const tty = is_tty();
     const safe_value = (value: unknown): string=>{
         const text = String(value ?? '');
-        return tty
-            ? terminal_safe(text).replace(/\n/g, ' ')
-            : text;
+        const safe_text = tty ? terminal_safe(text) : text;
+        return safe_text.replace(/[\n\t]/g, ' ');
     };
     const safe_cols = cols.map(safe_value);
     const safe_rows = rows.map(r=>
@@ -223,7 +222,7 @@ const print_table = (rows: Record<string, unknown>[], cols: string[])=>{
     const header = safe_cols.map((c, i)=>
         c.padEnd(widths[i])).join(' | ');
     console.log(dim(header));
-    console.log(dim(divider));
+    console.log(dim(divider)); 
     for (const row of safe_rows)
     {
         console.log(
