@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { stripVTControlCharacters } from 'util';
+import {parse} from 'csv-parse/sync';
+import {stringify} from 'csv-stringify/sync';
 
 import {get as get_config} from './config';
 
@@ -104,6 +106,19 @@ const sanitize_csv_cell = (s: string): string=>{
     if (/^[\s\u00a0]*[=+\-@]/.test(s))
         return "'" + s;
     return s;
+};
+
+const sanitize_serialized_csv = (csv: string): string=>{
+    const sanitize = get_config('sanitize_csv') !== false;
+    if (!sanitize || !csv)
+        return csv;
+    const rows = parse(csv, {
+        bom: true,
+    }) as string[][];
+    const sanitized = rows.map(row=>
+        row.map(cell=>sanitize_csv_cell(cell))
+    );
+    return stringify(sanitized);
 };
 
 const csv_escape = (val: unknown, sanitize: boolean): string=>{
@@ -251,5 +266,6 @@ export {
     green, red, yellow, dim,
     success, warn, info, fail,
     format_from_ext, serialize, print, print_table,
+    sanitize_serialized_csv,
 };
 export type {Output_format, Print_opts};

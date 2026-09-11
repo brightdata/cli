@@ -58,6 +58,8 @@
         "@clack/prompts": "^1.1.0",
         "@inquirer/prompts": "^8.2.1",
         "commander": "^14.0.2",
+        "csv-parse": "^7.0.2",
+        "csv-stringify": "^6.8.3",
         "open": "^11.0.0",
         "picocolors": "^1.1.1",
         "playwright-core": "^1.58.2",

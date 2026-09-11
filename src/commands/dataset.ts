@@ -1,7 +1,7 @@
 import {Command} from 'commander';
 import {ensure_authenticated} from '../utils/auth';
 import {get, post} from '../utils/client';
-import {print, dim, fail} from '../utils/output';
+import {print, dim, fail, sanitize_serialized_csv} from '../utils/output';
 import {start as start_spinner} from '../utils/spinner';
 import {parse_timeout, poll_until} from '../utils/polling';
 import {add_examples} from '../utils/help';
@@ -287,7 +287,11 @@ const handle_pipelines = async(
             `Data received after ${poll_result.attempts} attempts`
         ));
         const result = poll_result.result;
-        const cleaned_result = format == 'json' ? strip_nulls(result) : result;
+        const cleaned_result = format == 'json'
+            ? strip_nulls(result)
+            : format == 'csv' && typeof result == 'string'
+                ? sanitize_serialized_csv(result)
+                : result;
         print(cleaned_result, {
             json: opts.json,
             pretty: opts.pretty,
