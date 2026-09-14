@@ -14,6 +14,7 @@ const CONFIG_KEYS: Config_key[] = [
     'default_zone_serp',
     'default_format',
     'api_url',
+    'sanitize_csv',
 ];
 
 const format_keys = ()=>CONFIG_KEYS.join(', ');
@@ -50,12 +51,22 @@ const handle_get_config = (key: string)=>{
         );
         return;
     }
-    process.stdout.write(value+'\n');
+    process.stdout.write(String(value)+'\n');
 };
 
 const handle_set_config = (key: string, value: string)=>{
     const valid_key = ensure_valid_key(key);
-    set_config(valid_key, value);
+    if (valid_key == 'sanitize_csv')
+    {
+        if (value != 'true' && value != 'false')
+        {
+            fail('sanitize_csv must be true or false');
+            return;
+        }
+        set_config(valid_key, value == 'true');
+    }
+    else
+        set_config(valid_key, value);
     success(`Config updated: ${valid_key}=${value}`);
 };
 
