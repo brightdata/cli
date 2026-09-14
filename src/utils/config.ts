@@ -26,12 +26,23 @@ const load = (): Config=>{
     const config_path = get_config_path();
     if (!fs.existsSync(config_path))
         return {...DEFAULTS};
+    let parsed: Record<string, unknown>;
     try {
         const raw = fs.readFileSync(config_path, 'utf8');
-        return {...DEFAULTS, ...JSON.parse(raw) as Config};
+        parsed = JSON.parse(raw) as Record<string, unknown>;
     } catch(e) {
         return {...DEFAULTS};
     }
+    if (parsed.sanitize_csv == 'true')
+        parsed.sanitize_csv = true;
+    else if (parsed.sanitize_csv == 'false')
+        parsed.sanitize_csv = false;
+    else if (parsed.sanitize_csv !== undefined
+        && typeof parsed.sanitize_csv != 'boolean')
+    {
+        throw new Error('sanitize_csv must be true or false');
+    }
+    return {...DEFAULTS, ...parsed} as Config;
 };
 
 const save = (config: Config)=>{

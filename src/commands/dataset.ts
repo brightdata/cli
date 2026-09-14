@@ -287,11 +287,11 @@ const handle_pipelines = async(
             `Data received after ${poll_result.attempts} attempts`
         ));
         const result = poll_result.result;
-        const cleaned_result = format == 'json'
-            ? strip_nulls(result)
-            : format == 'csv' && typeof result == 'string'
-                ? sanitize_serialized_csv(result)
-                : result;
+        let cleaned_result = result;
+        if (format == 'json')
+            cleaned_result = strip_nulls(result);
+        else if (format == 'csv' && typeof result == 'string')
+            cleaned_result = sanitize_serialized_csv(result);
         print(cleaned_result, {
             json: opts.json,
             pretty: opts.pretty,

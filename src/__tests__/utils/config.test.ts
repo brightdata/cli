@@ -10,6 +10,7 @@ import {
     resolve_api_key,
     DEFAULTS,
 } from '../../utils/config';
+import {get_config_dir} from '../../utils/credentials';
 
 const mk_tmp_home = ()=>{
     const stamp = `${Date.now()}-${Math.random()}`;
@@ -47,6 +48,49 @@ describe('utils/config', ()=>{
         expect(get('default_zone_unlocker')).toBe('cli_unlocker');
         expect(get('default_zone_serp')).toBe('cli_serp');
         expect(get('default_format')).toBe('json');
+    });
+
+    it('persists sanitize_csv false as JSON boolean', ()=>{
+        set('sanitize_csv', false);
+        const config_path = path.join(get_config_dir(), 'config.json');
+        const persisted = JSON.parse(fs.readFileSync(config_path, 'utf8'));
+        expect(persisted.sanitize_csv).toBe(false);
+        expect(typeof persisted.sanitize_csv).toBe('boolean');
+    });
+
+    it('persists sanitize_csv true as JSON boolean', ()=>{
+        set('sanitize_csv', true);
+        const config_path = path.join(get_config_dir(), 'config.json');
+        const persisted = JSON.parse(fs.readFileSync(config_path, 'utf8'));
+        expect(persisted.sanitize_csv).toBe(true);
+        expect(typeof persisted.sanitize_csv).toBe('boolean');
+    });
+
+    it('normalizes persisted sanitize_csv string false', ()=>{
+        set('sanitize_csv', true);
+        const config_path = path.join(get_config_dir(), 'config.json');
+        fs.writeFileSync(config_path, JSON.stringify({
+            sanitize_csv: 'false',
+        }));
+        expect(load().sanitize_csv).toBe(false);
+    });
+
+    it('normalizes persisted sanitize_csv string true', ()=>{
+        set('sanitize_csv', false);
+        const config_path = path.join(get_config_dir(), 'config.json');
+        fs.writeFileSync(config_path, JSON.stringify({
+            sanitize_csv: 'true',
+        }));
+        expect(load().sanitize_csv).toBe(true);
+    });
+
+    it('rejects invalid persisted sanitize_csv value', ()=>{
+        set('sanitize_csv', true);
+        const config_path = path.join(get_config_dir(), 'config.json');
+        fs.writeFileSync(config_path, JSON.stringify({
+            sanitize_csv: 'maybe',
+        }));
+        expect(()=>load()).toThrow('sanitize_csv must be true or false');
     });
 
     it('resolves value by cli then env then config', ()=>{

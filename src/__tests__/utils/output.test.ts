@@ -114,6 +114,7 @@ describe('utils/output.serialize csv', ()=>{
 
         expect(out).toBe(input);
     });
+
     it('reads sanitize_csv config once per CSV serialization', ()=>{
         serialize([
             {a: '=1+1', b: '+cmd'},
@@ -123,11 +124,13 @@ describe('utils/output.serialize csv', ()=>{
         expect(mocks.get_config).toHaveBeenCalledTimes(1);
         expect(mocks.get_config).toHaveBeenCalledWith('sanitize_csv');
     });
+
     it('sanitizes formula cells in serialized CSV', ()=>{
         const input = 'name,value\nfoo,"=SUM(1,2)"\n';
         const out = sanitize_serialized_csv(input);
        expect(out).not.toContain('"=SUM(1,2)"');
     });
+
     it('preserves quoted commas and newlines in serialized CSV', ()=>{
         const input =
             'name,note\n'
@@ -136,6 +139,20 @@ describe('utils/output.serialize csv', ()=>{
         const out = sanitize_serialized_csv(input);
         expect(out).toContain('"hello,world"');
         expect(out).toContain('"line1\nline2"');
+    });
+
+    it('preserves UTF-8 BOM when sanitizing serialized CSV', ()=>{
+        const input = '\uFEFFname,value\nfoo,"=SUM(1,2)"\n';
+        const out = sanitize_serialized_csv(input);
+        expect(out.charCodeAt(0)).toBe(0xFEFF);
+        expect(out).toContain("'=SUM(1,2)");
+    });
+
+    it('throws actionable error when serialized CSV cannot be parsed', ()=>{
+        const input = 'name,value\nfoo,"unterminated\n';
+        expect(()=>sanitize_serialized_csv(input)).toThrow(
+            /Failed to sanitize server CSV: .*sanitize_csv=false/
+        );
     });
 });
 

@@ -112,13 +112,25 @@ const sanitize_serialized_csv = (csv: string): string=>{
     const sanitize = get_config('sanitize_csv') !== false;
     if (!sanitize || !csv)
         return csv;
-    const rows = parse(csv, {
-        bom: true,
-    }) as string[][];
+    const has_bom = csv.charCodeAt(0) == 0xFEFF;
+    let rows: string[][];
+    try {
+        rows = parse(csv, {
+            bom: true,
+        }) as string[][];
+    } catch(e) {
+        throw new Error(
+            'Failed to sanitize server CSV: '
+            +(e as Error).message
+            +'. Set sanitize_csv=false to export it without sanitization.'
+        );
+    }
     const sanitized = rows.map(row=>
         row.map(cell=>sanitize_csv_cell(cell))
     );
-    return stringify(sanitized);
+    return stringify(sanitized, {
+        bom: has_bom,
+    });
 };
 
 const csv_escape = (val: unknown, sanitize: boolean): string=>{
