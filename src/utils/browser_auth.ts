@@ -135,13 +135,6 @@ const bd_error = (
         const detail = desc ? desc : 'Multiple accounts found';
         return new Error(`${detail} \u2014 use --customer-id to specify your account`);
     }
-    if (status == 404 && error == 'user_not_found')
-    {
-        return new Error(
-            'No Bright Data account found for your GitHub email'
-            + (desc ? `: ${desc}` : '')
-        );
-    }
     if (status == 429)
         return new Error('Rate limit exceeded, please try again in a moment');
     if (status == 502)
