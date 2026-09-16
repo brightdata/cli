@@ -17,6 +17,12 @@ importers:
       commander:
         specifier: ^14.0.2
         version: 14.0.3
+      csv-parse:
+        specifier: ^7.0.2
+        version: 7.0.2
+      csv-stringify:
+        specifier: ^6.8.3
+        version: 6.8.3
       open:
         specifier: ^11.0.0
         version: 11.0.0
@@ -532,6 +538,12 @@ packages:
   commander@14.0.3:
     resolution: {integrity: sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw==}
     engines: {node: '>=20'}
+
+  csv-parse@7.0.2:
+    resolution: {integrity: sha512-uKZghv9UmPkMVLYy//KZ9HFAIJsl7wkhoEdIL0+rhuSY9pZQlhaeGEDPIe+/w7eh81MOql8Q/9+inAGWG6ZHYA==}
+
+  csv-stringify@6.8.3:
+    resolution: {integrity: sha512-gIeSCvq5F4VtXV3naV3VAewLhBkiZBz+PPhTOA8H3Y8h/ELa+R1ml0GZck/4/Nzo9ep2lvOluilJ6MJlbZsKMA==}
 
   default-browser-id@5.0.1:
     resolution: {integrity: sha512-x1VCxdX4t+8wVfd1so/9w+vQ4vx7lKd2Qp5tDRutErwmR85OgmfX7RlLRMWafRMY7hbEiXIbudNrjOAPa/hL8Q==}
@@ -1141,6 +1153,10 @@ snapshots:
   cli-width@4.1.0: {}
 
   commander@14.0.3: {}
+
+  csv-parse@7.0.2: {}
+
+  csv-stringify@6.8.3: {}
 
   default-browser-id@5.0.1: {}
 

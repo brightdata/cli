@@ -1,6 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { stripVTControlCharacters } from 'util';
+import {parse} from 'csv-parse/sync';
+import {stringify} from 'csv-stringify/sync';
+
+import {get as get_config} from './config';
 
 const terminal_safe = (val: unknown): string=>
     stripVTControlCharacters(String(val))
@@ -95,10 +99,46 @@ const cell_to_string = (val: unknown): string=>{
     return JSON.stringify(val);
 };
 
-const csv_escape = (val: unknown): string=>{
-    const s = cell_to_string(val);
+const sanitize_csv_cell = (s: string): string=>{
+    const trimmed = s.trim();
+    if (/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(trimmed))
+        return s;
+    if (/^[\s\u00a0]*[=+\-@]/.test(s))
+        return "'" + s;
+    return s;
+};
+
+const sanitize_serialized_csv = (csv: string): string=>{
+    const sanitize = get_config('sanitize_csv') !== false;
+    if (!sanitize || !csv)
+        return csv;
+    const has_bom = csv.charCodeAt(0) == 0xFEFF;
+    let rows: string[][];
+    try {
+        rows = parse(csv, {
+            bom: true,
+        }) as string[][];
+    } catch(e) {
+        throw new Error(
+            'Failed to sanitize server CSV: '
+            +(e as Error).message
+            +'. Set sanitize_csv=false to export it without sanitization.'
+        );
+    }
+    const sanitized = rows.map(row=>
+        row.map(cell=>sanitize_csv_cell(cell))
+    );
+    return stringify(sanitized, {
+        bom: has_bom,
+    });
+};
+
+const csv_escape = (val: unknown, sanitize: boolean): string=>{
+    let s = cell_to_string(val);
+    if (typeof val == 'string' && sanitize)
+        s = sanitize_csv_cell(s);
     if (/[",\r\n]/.test(s))
-        return '"'+s.replace(/"/g, '""')+'"';
+        return '"' + s.replace(/"/g, '""') + '"';
     return s;
 };
 
@@ -112,9 +152,10 @@ const serialize_csv = (data: unknown): string=>{
             +'to JSON. Use --json to silence this warning.');
         return JSON.stringify(data, null, 2);
     }
+    const sanitize = get_config('sanitize_csv') !== false;
     const keys = collect_keys(rows);
-    const header = keys.map(csv_escape).join(',');
-    const body = rows.map(r=>keys.map(k=>csv_escape(r[k])).join(',')).join('\n');
+    const header = keys.map(k=>csv_escape(k, sanitize)).join(',');
+    const body = rows.map(r=>keys.map(k=>csv_escape(r[k], sanitize)).join(',')).join('\n');
     return header+'\n'+body+'\n';
 };
 
@@ -237,5 +278,6 @@ export {
     green, red, yellow, dim,
     success, warn, info, fail,
     format_from_ext, serialize, print, print_table,
+    sanitize_serialized_csv,
 };
 export type {Output_format, Print_opts};
