@@ -6,6 +6,7 @@ import {logout_command} from './commands/logout';
 import {scrape_command} from './commands/scrape';
 import {search_command} from './commands/search';
 import {pipelines_command} from './commands/dataset';
+import {marketplace_command} from './commands/marketplace';
 import {status_command} from './commands/status';
 import {zones_command} from './commands/zones';
 import {config_command} from './commands/config';
@@ -41,6 +42,7 @@ const build_program = ()=>{
     program.addCommand(scrape_command);
     program.addCommand(search_command);
     program.addCommand(pipelines_command);
+    program.addCommand(marketplace_command);
     program.addCommand(status_command);
     program.addCommand(zones_command);
     program.addCommand(config_command);
