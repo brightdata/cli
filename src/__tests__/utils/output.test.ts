@@ -2,9 +2,28 @@ import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import {serialize, format_from_ext, print, print_table} from '../../utils/output';
+import {
+    serialize,
+    format_from_ext,
+    print,
+    print_table,
+    sanitize_serialized_csv,
+} from '../../utils/output';
+
+const mocks = vi.hoisted(()=>({
+    get_config: vi.fn(),
+}));
+vi.mock('../../utils/config', ()=>({
+    get: mocks.get_config,
+}));
 
 describe('utils/output.serialize csv', ()=>{
+    beforeEach(()=>{
+        mocks.get_config.mockReturnValue(true);
+    });
+    afterEach(()=>{
+        mocks.get_config.mockReset();
+    });
     it('serializes array of flat objects as RFC 4180 CSV with header row', ()=>{
         const rows = [
             {url: 'https://a.test/1', title: 'A', price: 1.5},
@@ -45,6 +64,95 @@ describe('utils/output.serialize csv', ()=>{
         const out = serialize(rows, 'csv');
         const lines = out.trim().split('\n');
         expect(lines[1]).toBe('1,"{""tag"":""x""}"');
+    });
+
+    it('sanitizes spreadsheet formula prefixes in CSV string cells', ()=>{
+        const rows = [{
+            equals: '=1+1',
+            space: ' =1+1',
+            multi_space: '   =1+1',
+            tab: '\t=1+1',
+            nbsp: '\u00a0=1+1',
+            plus: '+cmd',
+            minus: '-SUM(A1:A2)',
+            at: '@SUM(A1:A2)',
+        }];
+        const out = serialize(rows, 'csv');
+        expect(out).toContain("'=1+1");
+        expect(out).toContain("' =1+1");
+        expect(out).toContain("'   =1+1");
+        expect(out).toContain("'\t=1+1");
+        expect(out).toContain("'\u00a0=1+1");
+        expect(out).toContain("'+cmd");
+        expect(out).toContain("'-SUM(A1:A2)");
+        expect(out).toContain("'@SUM(A1:A2)");
+    });
+
+    it('does not sanitize numeric values', ()=>{
+        const out = serialize([{value: -100}], 'csv');
+        const lines = out.trim().split('\n');
+        expect(lines[1]).toBe('-100');
+    });
+
+    it('preserves numeric-looking CSV strings', ()=>{
+        const out = serialize([{negative: '-100', positive: '+15'}], 'csv');
+        expect(out).toContain('-100,+15');
+    });
+
+    it('does not sanitize CSV cells when sanitize_csv is false', ()=>{
+        mocks.get_config.mockReturnValue(false);
+        const out = serialize([{value: '=1+1'}], 'csv');
+        expect(out).toContain('=1+1');
+        expect(out).not.toContain("'=1+1");
+    });
+
+    it('does not sanitize serialized CSV when sanitize_csv is false', ()=>{
+        mocks.get_config.mockReturnValue(false);
+
+        const input = 'name,value\nfoo,=1+1\n';
+        const out = sanitize_serialized_csv(input);
+
+        expect(out).toBe(input);
+    });
+
+    it('reads sanitize_csv config once per CSV serialization', ()=>{
+        serialize([
+            {a: '=1+1', b: '+cmd'},
+            {a: '-SUM(A1:A2)', b: '@SUM(A1:A2)'},
+        ], 'csv');
+
+        expect(mocks.get_config).toHaveBeenCalledTimes(1);
+        expect(mocks.get_config).toHaveBeenCalledWith('sanitize_csv');
+    });
+
+    it('sanitizes formula cells in serialized CSV', ()=>{
+        const input = 'name,value\nfoo,"=SUM(1,2)"\n';
+        const out = sanitize_serialized_csv(input);
+       expect(out).not.toContain('"=SUM(1,2)"');
+    });
+
+    it('preserves quoted commas and newlines in serialized CSV', ()=>{
+        const input =
+            'name,note\n'
+            +'foo,"hello,world"\n'
+            +'bar,"line1\nline2"\n';
+        const out = sanitize_serialized_csv(input);
+        expect(out).toContain('"hello,world"');
+        expect(out).toContain('"line1\nline2"');
+    });
+
+    it('preserves UTF-8 BOM when sanitizing serialized CSV', ()=>{
+        const input = '\uFEFFname,value\nfoo,"=SUM(1,2)"\n';
+        const out = sanitize_serialized_csv(input);
+        expect(out.charCodeAt(0)).toBe(0xFEFF);
+        expect(out).toContain("'=SUM(1,2)");
+    });
+
+    it('throws actionable error when serialized CSV cannot be parsed', ()=>{
+        const input = 'name,value\nfoo,"unterminated\n';
+        expect(()=>sanitize_serialized_csv(input)).toThrow(
+            /Failed to sanitize server CSV: .*sanitize_csv=false/
+        );
     });
 });
 

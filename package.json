@@ -1,6 +1,6 @@
 {
     "name": "@brightdata/cli",
-    "version": "0.3.6",
+    "version": "0.3.7",
     "description": "Command-line interface for Bright Data. Scrape, search, extract structured data, and automate browsers directly from your terminal.",
     "main": "dist/index.js",
     "bin": {
@@ -58,6 +58,8 @@
         "@clack/prompts": "^1.1.0",
         "@inquirer/prompts": "^8.2.1",
         "commander": "^14.0.2",
+        "csv-parse": "^7.0.2",
+        "csv-stringify": "^6.8.3",
         "open": "^11.0.0",
         "picocolors": "^1.1.1",
         "playwright-core": "^1.58.2",
