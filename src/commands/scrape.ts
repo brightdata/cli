@@ -92,6 +92,7 @@ const handle_scrape = async(url: string, opts: Scrape_opts)=>{
 };
 
 const scrape_command = new Command('scrape')
+    .alias('fetch')
     .description('Scrape a URL using the Web Unlocker API')
     .argument('<url>', 'URL to scrape')
     .option('-f, --format <format>',
