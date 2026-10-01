@@ -58,16 +58,25 @@ describe('utils/polling.poll_until', ()=>{
         expect(result.last_status).toBe('ready');
     });
 
-    it('throws timeout error when status never completes', async()=>{
-        const fetch_once = vi.fn<() => Promise<Poll_item>>()
-            .mockResolvedValue({status: 'running'});
-        await expect(poll_until<Poll_item>({
-            timeout_seconds: 2,
-            fetch_once,
-            get_status: (r: Poll_item)=>r.status,
-            running_statuses: ['running'],
-            interval_ms: 0,
-            timeout_label: 'data',
-        })).rejects.toThrow('Timeout after 2 seconds waiting for data.');
+    it('throws timeout error when the wall-clock budget passes', async()=>{
+        vi.useFakeTimers();
+        try {
+            const fetch_once = vi.fn<() => Promise<Poll_item>>()
+                .mockResolvedValue({status: 'running'});
+            const promise = poll_until<Poll_item>({
+                timeout_seconds: 2,
+                fetch_once,
+                get_status: (r: Poll_item)=>r.status,
+                running_statuses: ['running'],
+                interval_ms: 1000,
+                timeout_label: 'data',
+            });
+            const assertion = expect(promise).rejects.toThrow(
+                'Timeout after 2 seconds waiting for data.');
+            await vi.advanceTimersByTimeAsync(2000);
+            await assertion;
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
