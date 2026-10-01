@@ -1,5 +1,5 @@
-import {checkbox, confirm, select} from '@inquirer/prompts';
 import {Command} from 'commander';
+import {load_prompts} from '../utils/load-prompts';
 import {resolve_key} from '../utils/auth';
 import {dim, green, red, warn} from '../utils/output';
 import {
@@ -112,6 +112,7 @@ const resolve_selected_agents = async(
         return null;
     }
 
+    const {checkbox} = await load_prompts();
     return await checkbox({
         message: 'Which coding agents should Bright Data MCP be added to?',
         choices: mcp_agents.map(agent=>({
@@ -177,6 +178,7 @@ const resolve_scope = async(
         return null;
     }
 
+    const {select} = await load_prompts();
     return await select({
         message: 'Install globally or for this project?',
         choices: [
@@ -229,6 +231,7 @@ const write_agent_with_recovery = async(
             );
         }
 
+        const {confirm} = await load_prompts();
         const overwrite = await confirm({
             message: 'Overwrite invalid config at '+error.file_path+'?',
             default: false,
