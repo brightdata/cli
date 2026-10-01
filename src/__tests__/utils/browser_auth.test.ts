@@ -153,13 +153,26 @@ describe('github_flow', ()=>{
         await expect(github_flow({})).rejects.toThrow('--customer-id');
     });
 
-    it('throws with "No Bright Data account" on 404 user_not_found from init', async()=>{
-        vi.spyOn(globalThis, 'fetch')
-            .mockResolvedValueOnce(gh_json(true, 200, GH_USER))
-            .mockResolvedValueOnce(bd_resp(404, {error: 'user_not_found'}));
+    it('does not dead-end on a missing account; backend find-or-create mints a key', async()=>{
+        // A brand-new GitHub identity (no prior BD account) reaches verify and is
+        // created server-side, returning a freshly minted key — no CLI "no account" failure.
+        const spy = vi.spyOn(globalThis, 'fetch');
+        setup_full_flow(spy);
 
-        await expect(github_flow({})).rejects.toThrow('No Bright Data account');
+        const result = await github_flow({});
+        expect(result).toBe('test-api-key');
     });
+
+    it('surfaces a generic non-zero failure (no "No Bright Data account" dead-end) on init error',
+        async()=>{
+            vi.spyOn(globalThis, 'fetch')
+                .mockResolvedValueOnce(gh_json(true, 200, GH_USER))
+                .mockResolvedValueOnce(bd_resp(404, {error: 'user_not_found'}));
+
+            const err = await github_flow({}).catch((e: Error)=>e);
+            expect(err).toBeInstanceOf(Error);
+            expect((err as Error).message).not.toContain('No Bright Data account');
+        });
 
     it('passes customer_id to the init request body when provided', async()=>{
         const spy = vi.spyOn(globalThis, 'fetch');
