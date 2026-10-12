@@ -41,7 +41,7 @@ const build_program = ()=>{
     program.addCommand(scrape_command);
     program.addCommand(search_command);
     program.addCommand(pipelines_command);
-    program.addCommand(status_command);
+    program.addCommand(status_command, {hidden: true});
     program.addCommand(zones_command);
     program.addCommand(config_command);
     program.addCommand(init_command);
@@ -61,6 +61,11 @@ const build_program = ()=>{
 };
 
 const main = async()=>{
+    process.stdout.on('error', (e: NodeJS.ErrnoException)=>{
+        if (e.code != 'EPIPE')
+            throw e;
+        process.exit(0);
+    });
     if (await maybe_run_browser_daemon())
         return;
     build_program().parse(process.argv);

@@ -40,7 +40,7 @@ const fetch_status = async(
     job_id: string,
     timing: boolean|undefined
 ): Promise<unknown>=>{
-    const endpoint = `${PROGRESS_ENDPOINT}/${job_id}`;
+    const endpoint = `${PROGRESS_ENDPOINT}/${encodeURIComponent(job_id)}`;
     return get<unknown>(api_key, endpoint, {timing});
 };
 
@@ -108,9 +108,9 @@ const handle_status = async(job_id: string, opts: Status_opts)=>{
     }
 };
 
-const status_command = new Command('status')
-    .description('Check status of an async Web Scraper snapshot job')
-    .argument('<job-id>', 'Snapshot ID returned by trigger request')
+const pipelines_status_command = new Command('status')
+    .description('Check the status of a scraper run')
+    .argument('<snapshot_id>', 'Snapshot ID from "pipelines run"')
     .option('--wait', 'Poll until the job is complete')
     .option('--timeout <seconds>',
         'Polling timeout in seconds (default: 600 or' +
@@ -121,4 +121,10 @@ const status_command = new Command('status')
     .option('--timing', 'Show request timing')
     .action(handle_status);
 
-export {status_command, handle_status};
+const status_command = new Command('status')
+    .argument('[job-id]')
+    .allowUnknownOption()
+    .allowExcessArguments()
+    .action(()=>fail('Moved to: brightdata pipelines status <snapshot_id>'));
+
+export {status_command, pipelines_status_command, handle_status};

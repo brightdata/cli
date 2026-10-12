@@ -35,7 +35,7 @@ vi.mock('../../utils/polling', ()=>({
     poll_until: mocks.poll_until,
 }));
 
-import {handle_status} from '../../commands/status';
+import {handle_status, status_command} from '../../commands/status';
 
 describe('commands/status', ()=>{
     beforeEach(()=>{
@@ -88,5 +88,11 @@ describe('commands/status', ()=>{
             {status: 'ready'},
             {json: undefined, pretty: undefined, output: undefined}
         );
+    });
+
+    it('top-level status points to pipelines status, with options', async()=>{
+        await expect(status_command.parseAsync(['abc', '--wait'],
+            {from: 'user'})).rejects
+            .toThrow('fail:Moved to: brightdata pipelines status');
     });
 });
