@@ -106,6 +106,29 @@ describe('commands/pipelines search, info, refresh', ()=>{
         expect(text).toContain('brightdata pipelines run gd_rev '
             +'collect_by_url --url https://amazon.com/dp/X');
     });
+    it('Run example quotes shell characters in sample values', ()=>{
+        const url = 'https://www.linkedin.com/jobs/search?keywords=a&geoId=1';
+        expect(format_details({...details, sample_input: [{url}]}))
+            .toContain(`--url '${url}'`);
+    });
+    it('Run example uses --input for field names with spaces', ()=>{
+        const text = format_details({...details, sample_input: null,
+            input_fields: [{name: 'URL pattern', type: 'text',
+                required: true}]});
+        expect(text).toContain('collect_by_url --input '
+            +`'[{"URL pattern":"<text>"}]'`);
+    });
+    it('Run example shows an optional field when none is required', ()=>{
+        const text = format_details({...details, sample_input: null,
+            input_fields: [{name: 'upc', type: 'text', required: false}]});
+        expect(text).toContain("collect_by_url --upc '<text>'");
+    });
+    it('Run example joins array samples with commas', ()=>{
+        const text = format_details({...details, input_fields: [
+            {name: 'tags', type: 'array', required: true}],
+        sample_input: [{tags: ['a', 'b']}]});
+        expect(text).toContain('collect_by_url --tags a,b');
+    });
     it('refresh forces a reload', async()=>{
         mocks.load_catalog.mockResolvedValue([entry, entry]);
         await handle_refresh({});
@@ -124,7 +147,7 @@ describe('commands/pipelines run', ()=>{
             limit_per_input: 10}, {headers, timing: undefined});
         expect(mocks.wait_for_results).toHaveBeenCalledWith('key', 's_1',
             {format: 'json', timeout_seconds: 600, headers,
-                timing: undefined});
+                timing: undefined, on_running: expect.any(Function)});
         expect(JSON.parse(stdout)).toEqual([{title: 'a'}]);
     });
     it('validates flags before triggering', async()=>{

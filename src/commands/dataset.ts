@@ -81,18 +81,35 @@ const print_data = (data: unknown, format: string, opts: Pipelines_opts)=>{
     print(safe, out_opts(opts));
 };
 
-const quote = (value: unknown): string=>{
-    const s = typeof value == 'string' ? value : JSON.stringify(value);
-    return /^[\w:/.?=&%@+-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`;
+const quote = (s: string): string=>/^[\w:/.%@+,=-]+$/.test(s) ? s
+    : `'${s.replace(/'/g, `'\\''`)}'`;
+
+const flag_value = (value: unknown, type: string): string|null=>{
+    if (value === undefined || value === null || value === '')
+        return `<${type}>`;
+    if (Array.isArray(value) && value.every(v=>typeof v != 'object'
+        && !String(v).includes(',')))
+    {
+        return value.join(',');
+    }
+    return typeof value == 'object' ? null : String(value);
 };
 
 const run_example = (d: Scraper_details): string=>{
     const sample: Input_record = d.sample_input?.[0] ?? {};
-    const flags = d.input_fields.filter(f=>f.required && !/\s/.test(f.name))
-        .map(f=>`--${f.name} ${f.name in sample ? quote(sample[f.name])
-            : `<${f.type}>`}`);
-    return ['brightdata pipelines run', d.dataset_id, d.method, ...flags]
-        .join(' ');
+    const required = d.input_fields.filter(f=>f.required);
+    const shown = required.length ? required : d.input_fields.slice(0, 1);
+    const values = shown.map(f=>flag_value(sample[f.name], f.type));
+    const cmd = ['brightdata pipelines run', d.dataset_id, d.method];
+    if (shown.some((f, i)=>/\s/.test(f.name) || values[i] === null))
+    {
+        const record = Object.fromEntries(shown.map(f=>[f.name,
+            sample[f.name] ?? `<${f.type}>`]));
+        return [...cmd, '--input', quote(JSON.stringify([record]))]
+            .join(' ');
+    }
+    return [...cmd, ...shown.flatMap((f, i)=>[`--${f.name}`,
+        quote(values[i]!)])].join(' ');
 };
 
 const format_details = (d: Scraper_details): string=>{
@@ -196,8 +213,23 @@ const handle_run = async(id: string, method: string, args: string[],
     console.error(dim(`Snapshot ${snapshot_id} started. If you stop waiting, `
         +`get the data later with: brightdata pipelines results `
         +snapshot_id));
-    const res = await wait_for_results(api_key, snapshot_id, {format,
-        timeout_seconds, headers, timing: opts.timing});
+    const started = Date.now();
+    const waiting = start_spinner(`Waiting for snapshot ${snapshot_id}...`);
+    const on_running = ({attempt}: {attempt: number})=>{
+        const msg = `Waiting for snapshot ${snapshot_id}: running, `
+            +`${Math.round((Date.now()-started)/1000)}s`;
+        if (is_tty())
+            waiting.update(msg);
+        else if (attempt % 30 == 0)
+            console.error(msg);
+    };
+    let res;
+    try {
+        res = await wait_for_results(api_key, snapshot_id, {format,
+            timeout_seconds, headers, timing: opts.timing, on_running});
+    } finally {
+        waiting.stop();
+    }
     print_data(res.data, format, opts);
 };
 

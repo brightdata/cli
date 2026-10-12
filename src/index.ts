@@ -61,6 +61,11 @@ const build_program = ()=>{
 };
 
 const main = async()=>{
+    process.stdout.on('error', (e: NodeJS.ErrnoException)=>{
+        if (e.code != 'EPIPE')
+            throw e;
+        process.exit(0);
+    });
     if (await maybe_run_browser_daemon())
         return;
     build_program().parse(process.argv);

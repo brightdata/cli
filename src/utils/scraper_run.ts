@@ -51,7 +51,8 @@ const trigger = async(api_key: string, req: Run_request,
         params.set('limit_per_input', String(req.limit_per_input ?? 10));
     }
     const res = await step('trigger', post<Trigger_response>(api_key,
-        `/datasets/v3/trigger?${params}`, req.input, opts));
+        `/datasets/v3/trigger?${params}`, req.input,
+        {...opts, retry: {max_attempts: 0}}));
     if (!res?.snapshot_id)
         throw new Error('trigger failed. No snapshot_id returned.');
     return res.snapshot_id;

@@ -33,6 +33,7 @@ describe('scraper_run trigger', ()=>{
         expect(body).toEqual([{url: 'https://a.com'}]);
         expect(opts.headers).toEqual({'x-mcp-dataset-id': 'gd_1',
             'x-mcp-method': 'collect_by_url'});
+        expect(opts.retry).toEqual({max_attempts: 0});
     });
     it('discover methods pass discover_by and limit_per_input', async()=>{
         await trigger('k', {dataset_id: 'gd_1',

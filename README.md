@@ -210,7 +210,7 @@ brightdata scrape <url> [options]
 | `--country <code>` | Geo-target by ISO country code (e.g. `us`, `de`, `jp`) |
 | `--zone <name>` | Web Unlocker zone name |
 | `--mobile` | Use a mobile user agent |
-| `--async` | Submit async job, return a snapshot ID |
+| `--async` | Submit async job, return a response ID |
 | `-o, --output <path>` | Write output to file |
 | `--json` / `--pretty` | JSON output (raw / indented) |
 | `-k, --api-key <key>` | Override API key |

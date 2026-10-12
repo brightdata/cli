@@ -124,6 +124,7 @@ const pipelines_status_command = new Command('status')
 const status_command = new Command('status')
     .argument('[job-id]')
     .allowUnknownOption()
+    .allowExcessArguments()
     .action(()=>fail('Moved to: brightdata pipelines status <snapshot_id>'));
 
 export {status_command, pipelines_status_command, handle_status};
