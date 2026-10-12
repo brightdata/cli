@@ -1,340 +1,335 @@
 import {Command} from 'commander';
 import {ensure_authenticated} from '../utils/auth';
-import {get, post} from '../utils/client';
-import {print, dim, fail, sanitize_serialized_csv} from '../utils/output';
+import {
+    print,
+    print_table,
+    dim,
+    fail,
+    is_tty,
+    success,
+    sanitize_serialized_csv,
+} from '../utils/output';
 import {start as start_spinner} from '../utils/spinner';
-import {parse_timeout, poll_until} from '../utils/polling';
+import {parse_timeout} from '../utils/polling';
 import {add_examples} from '../utils/help';
-import type {
-    Webdata_format,
-    Webdata_opts,
-    Trigger_response,
-    Snapshot_meta,
-} from '../types/dataset';
-
-const TRIGGER_ENDPOINT = '/datasets/v3/trigger';
-const SNAPSHOT_ENDPOINT = '/datasets/v3/snapshot';
-const RUNNING_STATUSES = ['starting', 'building', 'running'];
-
-const DATASET_IDS = {
-    amazon_product:            'gd_l7q7dkf244hwjntr0',
-    amazon_product_reviews:    'gd_le8e811kzy4ggddlq',
-    amazon_product_search:     'gd_lwdb4vjm1ehb499uxs',
-    walmart_product:           'gd_l95fol7l1ru6rlo116',
-    walmart_seller:            'gd_m7ke48w81ocyu4hhz0',
-    ebay_product:              'gd_ltr9mjt81n0zzdk1fb',
-    homedepot_products:        'gd_lmusivh019i7g97q2n',
-    zara_products:             'gd_lct4vafw1tgx27d4o0',
-    etsy_products:             'gd_ltppk0jdv1jqz25mz',
-    bestbuy_products:          'gd_ltre1jqe1jfr7cccf',
-    linkedin_person_profile:   'gd_l1viktl72bvl7bjuj0',
-    linkedin_company_profile:  'gd_l1vikfnt1wgvvqz95w',
-    linkedin_job_listings:     'gd_lpfll7v5hcqtkxl6l',
-    linkedin_posts:            'gd_lyy3tktm25m4avu764',
-    linkedin_people_search:    'gd_m8d03he47z8nwb5xc',
-    crunchbase_company:        'gd_l1vijqt9jfj7olije',
-    zoominfo_company_profile:  'gd_m0ci4a4ivx3j5l6nx',
-    instagram_profiles:        'gd_l1vikfch901nx3by4',
-    instagram_posts:           'gd_lk5ns7kz21pck8jpis',
-    instagram_reels:           'gd_lyclm20il4r5helnj',
-    instagram_comments:        'gd_ltppn085pokosxh13',
-    facebook_posts:            'gd_lyclm1571iy3mv57zw',
-    facebook_marketplace_listings: 'gd_lvt9iwuh6fbcwmx1a',
-    facebook_company_reviews:  'gd_m0dtqpiu1mbcyc2g86',
-    facebook_events:           'gd_m14sd0to1jz48ppm51',
-    tiktok_profiles:           'gd_l1villgoiiidt09ci',
-    tiktok_posts:              'gd_lu702nij2f790tmv9h',
-    tiktok_shop:               'gd_m45m1u911dsa4274pi',
-    tiktok_comments:           'gd_lkf2st302ap89utw5k',
-    x_posts:                   'gd_lwxkxvnf1cynvib9co',
-    youtube_profiles:          'gd_lk538t2k2p1k3oos71',
-    youtube_videos:            'gd_lk56epmy2i5g7lzu0k',
-    youtube_comments:          'gd_lk9q0ew71spt1mxywf',
-    reddit_posts:              'gd_lvz8ah06191smkebj4',
-    google_maps_reviews:       'gd_luzfs1dn2oa0teb81',
-    google_shopping:           'gd_ltppk50q18kdw67omz',
-    google_play_store:         'gd_lsk382l8xei8vzm4u',
-    apple_app_store:           'gd_lsk9ki3u2iishmwrui',
-    reuter_news:               'gd_lyptx9h74wtlvpnfu',
-    github_repository_file:    'gd_lyrexgxc24b3d4imjt',
-    yahoo_finance_business:    'gd_lmrpz3vxmz972ghd7',
-    zillow_properties_listing: 'gd_lfqkr8wm13ixtbd8f5',
-    booking_hotel_listings:    'gd_m5mbdl081229ln6t4a',
-} as const;
-
-type Dataset_type = keyof typeof DATASET_IDS;
-type Webdata_input = Record<string, string>;
+import {create_scraper_catalog} from '../utils/scraper_catalog';
+import {
+    scraper_headers,
+    trigger,
+    results,
+    wait_for_results,
+} from '../utils/scraper_run';
+import {build_records, read_input} from '../utils/scraper_input';
+import {pipelines_status_command} from './status';
+import type {Webdata_format} from '../types/dataset';
+import type {Scraper_details, Input_record} from '../types/pipelines';
 
 const ALLOWED_FORMATS: Webdata_format[] = ['json', 'csv', 'ndjson', 'jsonl'];
 
-const strip_nulls = (data: unknown): unknown=>{
-    if (data === null)
-        return undefined;
-    if (Array.isArray(data))
-    {
-        const cleaned: unknown[] = [];
-        for (let i=0; i<data.length; i++)
-        {
-            const item = strip_nulls(data[i]);
-            if (item !== undefined)
-                cleaned.push(item);
-        }
-        return cleaned;
-    }
-    if (typeof data == 'object')
-    {
-        const cleaned: Record<string, unknown> = {};
-        const entries = Object.entries(data as Record<string, unknown>);
-        for (let i=0; i<entries.length; i++)
-        {
-            const [key, value] = entries[i];
-            const item = strip_nulls(value);
-            if (item !== undefined)
-                cleaned[key] = item;
-        }
-        return cleaned;
-    }
-    return data;
+type Pipelines_opts = {
+    format?: string;
+    timeout?: string;
+    input?: string;
+    async?: boolean;
+    limit?: string;
+    limitPerInput?: string;
+    output?: string;
+    json?: boolean;
+    pretty?: boolean;
+    timing?: boolean;
+    apiKey?: string;
 };
 
-const list_dataset_types = ()=>{
-    const types = Object.keys(DATASET_IDS).sort();
-    process.stdout.write(types.join('\n')+'\n');
+const out_opts = (opts: Pipelines_opts)=>({json: opts.json,
+    pretty: opts.pretty, output: opts.output});
+
+const is_human = (opts: Pipelines_opts)=>is_tty() && !opts.json
+    && !opts.pretty && !opts.output;
+
+const guard = <A extends unknown[]>(fn: (...args: A)=>Promise<void>)=>
+    async(...args: A)=>{
+        try {
+            await fn(...args);
+        } catch(e) {
+            fail((e as Error).message);
+        }
+    };
+
+const parse_int = (raw: string|undefined, name: string, def: number,
+    max: number): number=>{
+    if (raw === undefined)
+        return def;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > max)
+        throw new Error(`${name} must be a whole number from 1 to ${max}`);
+    return n;
 };
 
-const resolve_dataset_type = (dataset_type: string): Dataset_type|undefined=>{
-    if (dataset_type in DATASET_IDS)
-        return dataset_type as Dataset_type;
-    return undefined;
+const resolve_format = (raw: string|undefined): Webdata_format=>{
+    const format = (raw ?? 'json').toLowerCase() as Webdata_format;
+    if (!ALLOWED_FORMATS.includes(format))
+    {
+        throw new Error(`Invalid format "${format}". Allowed formats: `
+            +ALLOWED_FORMATS.join(', '));
+    }
+    return format;
 };
 
-const resolve_format = (raw_format: string|undefined): Webdata_format=>{
-    const format = (raw_format ?? 'json').toLowerCase();
-    if (ALLOWED_FORMATS.includes(format as Webdata_format))
-        return format as Webdata_format;
-    fail(
-        `Invalid format "${format}".\n`
-        +'  Allowed formats: json, csv, ndjson, jsonl.'
-    );
-    return 'json';
+const print_data = (data: unknown, format: string, opts: Pipelines_opts)=>{
+    const safe = format == 'csv' && typeof data == 'string'
+        ? sanitize_serialized_csv(data) : data;
+    print(safe, out_opts(opts));
 };
 
-const build_input = (dataset_type: Dataset_type, 
-    params: string[]): Webdata_input=>{
-    if (dataset_type == 'amazon_product_search')
-    {
-        const keyword = params[0];
-        const url = params[1];
-        if (!keyword || !url)
-        {
-            fail(
-                'Usage: brightdata pipelines amazon_product_search '
-                +'<keyword> <domain_url>'
-            );
-            return {};
-        }
-        return {keyword, url, pages_to_search: '1'};
-    }
-    if (dataset_type == 'linkedin_people_search')
-    {
-        const url = params[0];
-        const first_name = params[1];
-        const last_name = params[2];
-        if (!url || !first_name || !last_name)
-        {
-            fail(
-                'Usage: brightdata pipelines linkedin_people_search '
-                +'<url> <first_name> <last_name>'
-            );
-            return {};
-        }
-        return {url, first_name, last_name};
-    }
-    if (dataset_type == 'amazon_product_reviews') {
-    const url = params[0];
-    const max_reviews = params[1];
-    if (!url) {
-        fail('Usage: brightdata pipelines amazon_product_reviews <url> '
-            +'[max_reviews]');
-        return {};
-    }
-    return max_reviews ? {url, max_reviews} : {url};
-}
-    if (dataset_type == 'facebook_company_reviews')
-    {
-        const url = params[0];
-        const num_of_reviews = params[1] ?? '10';
-        if (!url)
-        {
-            fail('Usage: brightdata pipelines facebook_company_reviews <url> '
-                +'[num_reviews]');
-            return {};
-        }
-        return {url, num_of_reviews};
-    }
-    if (dataset_type == 'google_maps_reviews')
-    {
-        const url = params[0];
-        const days_limit = params[1] ?? '3';
-        if (!url)
-        {
-            fail('Usage: brightdata pipelines google_maps_reviews <url> '
-                +'[days_limit]');
-            return {};
-        }
-        return {url, days_limit};
-    }
-    if (dataset_type == 'youtube_comments')
-    {
-        const url = params[0];
-        const num_of_comments = params[1] ?? '10';
-        if (!url)
-        {
-            fail('Usage: brightdata pipelines youtube_comments <url> '
-                +'[num_comments]');
-            return {};
-        }
-        return {url, num_of_comments};
-    }
-    const url = params[0];
-    if (!url)
-    {
-        fail(`Usage: brightdata pipelines ${dataset_type} <url>`);
-        return {};
-    }
-    return {url};
+const quote = (value: unknown): string=>{
+    const s = typeof value == 'string' ? value : JSON.stringify(value);
+    return /^[\w:/.?=&%@+-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`;
 };
 
-const extract_status = (result: unknown): string|undefined=>{
-    if (!result || typeof result != 'object')
-        return undefined;
-    const status = (result as Snapshot_meta).status;
-    if (typeof status == 'string')
-        return status;
-    return undefined;
+const run_example = (d: Scraper_details): string=>{
+    const sample: Input_record = d.sample_input?.[0] ?? {};
+    const flags = d.input_fields.filter(f=>f.required && !/\s/.test(f.name))
+        .map(f=>`--${f.name} ${f.name in sample ? quote(sample[f.name])
+            : `<${f.type}>`}`);
+    return ['brightdata pipelines run', d.dataset_id, d.method, ...flags]
+        .join(' ');
 };
 
-const handle_pipelines = async(
-    dataset_type_raw: string,
-    params: string[],
-    opts: Webdata_opts
-)=>{
-    if (dataset_type_raw == 'list')
+const format_details = (d: Scraper_details): string=>{
+    const lines = [`${d.name} (${d.domain})`, `${d.dataset_id} ${d.method}`];
+    if (d.description)
+        lines.push('', d.description);
+    if (d.input_fields.length)
+        lines.push('', 'Input fields:');
+    for (const f of d.input_fields)
     {
-        list_dataset_types();
-        return;
+        const flag = /\s/.test(f.name) ? `"${f.name}" (only with --input)`
+            : `--${f.name} <${f.type}>`;
+        lines.push(`  ${flag}${f.required ? ' (required)' : ''}`
+            +(f.description ? `  ${f.description}` : ''));
     }
-    const dataset_type = resolve_dataset_type(dataset_type_raw);
-    if (!dataset_type)
+    if (d.sample_input)
+        lines.push('', `Example input: ${JSON.stringify(d.sample_input)}`);
+    if (d.notes.length)
+        lines.push('', ...d.notes);
+    lines.push('', 'Run:', `  ${run_example(d)}`);
+    return lines.join('\n');
+};
+
+const handle_search = async(words: string[], opts: Pipelines_opts)=>{
+    const query = words.join(' ');
+    const limit = parse_int(opts.limit, '--limit', 10, 50);
+    const list = await create_scraper_catalog().search(query, limit);
+    if (!is_human(opts))
+        return void print(list, out_opts(opts));
+    if (!list.length)
+        return void console.error(`No scrapers match "${query}".`);
+    print_table(list.map(s=>({...s,
+        collection_methods: s.collection_methods.join(', ')})),
+    ['dataset_id', 'name', 'domain', 'collection_methods']);
+    console.error(dim('\nNext: brightdata pipelines info <dataset_id> '
+        +'<method>'));
+};
+
+const handle_info = async(id: string, method: string|undefined,
+    opts: Pipelines_opts)=>{
+    const catalog = create_scraper_catalog();
+    if (!method)
     {
-        fail(
-            `Unknown pipeline type "${dataset_type_raw}".\n`
-            +'  Run \'brightdata pipelines list\' to see available types.'
-        );
+        const entry = await catalog.find(id);
+        if (!is_human(opts))
+            return void print(entry, out_opts(opts));
+        print([`${entry.name} (${entry.domain})`, entry.dataset_id, '',
+            'Methods:', ...entry.collection_methods.map(m=>`  ${m}`), '',
+            `Next: brightdata pipelines info ${id} <method>`].join('\n'));
         return;
     }
     const api_key = ensure_authenticated(opts.apiKey);
-    const dataset_id = DATASET_IDS[dataset_type];
-    let timeout = 600;
-    try {
-        timeout = parse_timeout(opts.timeout);
-    } catch(e) {
-        fail((e as Error).message);
-        return;
-    }
-    const format = resolve_format(opts.format);
-    const input = build_input(dataset_type, params);
-    const spinner = start_spinner(
-        `Triggering pipeline collection for ${dataset_type}...`
-    );
-    try {
-        const endpoint = `${TRIGGER_ENDPOINT}?dataset_id=${dataset_id}`
-            +'&include_errors=true';
-        const trigger = await post<Trigger_response>(
-            api_key,
-            endpoint,
-            [input],
-            {timing: opts.timing}
-        );
-        spinner.stop();
-        const snapshot_id = trigger.snapshot_id;
-        if (!snapshot_id)
-        {
-            fail('Failed to trigger pipeline collection' +
-                '(missing snapshot_id).');
-            return;
-        }
-        console.error(dim(`Triggered collection with snapshot ID:` +
-            `${snapshot_id}`));
-        const poll_result = await poll_until<unknown>({
-            timeout_seconds: timeout,
-            fetch_once: ()=>{
-                const endpoint = `${SNAPSHOT_ENDPOINT}/${snapshot_id}`
-                    +`?format=${format}`;
-                return get<unknown>(api_key, endpoint, {timing: opts.timing});
-            },
-            get_status: extract_status,
-            running_statuses: RUNNING_STATUSES,
-            timeout_label: 'data',
-            on_running: ({attempt, timeout_seconds, status})=>{
-                console.error(dim(
-                    `Status: ${status} - polling again `
-                    +`(attempt ${attempt}/${timeout_seconds})`
-                ));
-            },
-        });
-        console.error(dim(
-            `Data received after ${poll_result.attempts} attempts`
-        ));
-        const result = poll_result.result;
-        let cleaned_result = result;
-        if (format == 'json')
-            cleaned_result = strip_nulls(result);
-        else if (format == 'csv' && typeof result == 'string')
-            cleaned_result = sanitize_serialized_csv(result);
-        print(cleaned_result, {
-            json: opts.json,
-            pretty: opts.pretty,
-            output: opts.output,
-        });
-    } catch(e) {
-        spinner.stop();
-        console.error((e as Error).message);
-        process.exit(1);
-    }
+    const details = await catalog.get_details(api_key, id, method);
+    print(is_human(opts) ? format_details(details) : details,
+        out_opts(opts));
 };
 
-const pipelines_command = new Command('pipelines')
-    .description('Extract structured data using Bright Data Pipelines')
-    .argument('<type>', 'Pipeline type or "list"')
-    .argument('[params...]', 'Type-specific input arguments')
-    .option('--format <fmt>',
-        'Result format: json, csv, ndjson, jsonl (default: json)')
-    .option('--timeout <seconds>',
-        'Polling timeout in seconds' +
-        '(default: 600 or BRIGHTDATA_POLLING_TIMEOUT)')
+const build_input = async(api_key: string, id: string, method: string,
+    args: string[], opts: Pipelines_opts): Promise<Input_record[]>=>{
+    const catalog = create_scraper_catalog();
+    if (!opts.input)
+    {
+        const details = await catalog.get_details(api_key, id, method);
+        return build_records(details.input_fields, args);
+    }
+    if (args.length)
+        throw new Error('Use either --input or URLs and field flags');
+    const entry = await catalog.find(id);
+    if (!entry.collection_methods.includes(method))
+    {
+        throw new Error(`${entry.name} has no method ${method}, available: `
+            +entry.collection_methods.join(', '));
+    }
+    return read_input(opts.input);
+};
+
+const handle_run = async(id: string, method: string, args: string[],
+    opts: Pipelines_opts)=>{
+    const api_key = ensure_authenticated(opts.apiKey);
+    const timeout_seconds = parse_timeout(opts.timeout);
+    const format = resolve_format(opts.format);
+    const limit_per_input = parse_int(opts.limitPerInput,
+        '--limit-per-input', 10, 1000);
+    const input = await build_input(api_key, id, method, args, opts);
+    const headers = scraper_headers(id, method);
+    const spinner = start_spinner(`Starting ${method} on ${id} for `
+        +`${input.length} input(s)...`);
+    let snapshot_id: string;
+    try {
+        snapshot_id = await trigger(api_key, {dataset_id: id, method, input,
+            limit_per_input}, {headers, timing: opts.timing});
+    } finally {
+        spinner.stop();
+    }
+    if (opts.async)
+    {
+        print({snapshot_id}, out_opts(opts));
+        console.error(dim(`Check: brightdata pipelines status ${snapshot_id}`));
+        return;
+    }
+    console.error(dim(`Snapshot ${snapshot_id} started. If you stop waiting, `
+        +`get the data later with: brightdata pipelines results `
+        +snapshot_id));
+    const res = await wait_for_results(api_key, snapshot_id, {format,
+        timeout_seconds, headers, timing: opts.timing});
+    print_data(res.data, format, opts);
+};
+
+const handle_results = async(snapshot_id: string, opts: Pipelines_opts)=>{
+    const api_key = ensure_authenticated(opts.apiKey);
+    const format = resolve_format(opts.format);
+    const res = await results(api_key, snapshot_id, {format,
+        timing: opts.timing});
+    if (res.status == 'running')
+    {
+        throw new Error(`Snapshot ${snapshot_id} is not ready yet. Wait for `
+            +`it with: brightdata pipelines status ${snapshot_id} --wait`);
+    }
+    print_data(res.data, format, opts);
+};
+
+const handle_refresh = async(opts: Pipelines_opts)=>{
+    const list = await create_scraper_catalog().load_catalog({force: true});
+    if (is_human(opts))
+        return void success(`Loaded ${list.length} scrapers`);
+    print({scrapers: list.length}, out_opts(opts));
+};
+
+const handle_removed_type = (type: string|undefined, _params: string[],
+    _opts: unknown, cmd: Command)=>{
+    if (!type)
+        return void cmd.outputHelp();
+    const words = type == 'list' ? '<site or data type>'
+        : type.replace(/_/g, ' ');
+    fail('Pipeline types were removed in 0.4.0. Find the scraper with:\n'
+        +`  brightdata pipelines search ${words}`);
+};
+
+const add_output_opts = (cmd: Command): Command=>cmd
     .option('-o, --output <path>', 'Write output to file')
     .option('--json', 'Force JSON output')
     .option('--pretty', 'Pretty-print JSON output')
-    .option('--timing', 'Show request timing')
-    .action(handle_pipelines);
+    .option('--timing', 'Show request timing');
+
+const search_subcommand = add_output_opts(new Command('search')
+    .description('Find a pre-built scraper by site or data type')
+    .argument('<query...>', 'Words to match, e.g. "amazon reviews"')
+    .option('--limit <n>', 'Max results, 1-50 (default: 10)'))
+    .action(guard(handle_search));
+
+const info_subcommand = add_output_opts(new Command('info')
+    .description('Show a scraper\'s methods, or one method\'s input fields '
+        +'and example input')
+    .argument('<dataset_id>', 'Scraper ID from "pipelines search"')
+    .argument('[method]', 'Collection method, e.g. collect_by_url'))
+    .action(guard(handle_info));
+
+const run_subcommand = add_output_opts(new Command('run')
+    .description('Run a scraper. Pass URLs, one --<field> <value> flag per '
+        +'input field (see "pipelines info"), or --input')
+    .argument('<dataset_id>', 'Scraper ID from "pipelines search"')
+    .argument('<method>', 'Collection method from "pipelines info"')
+    .argument('[inputs...]', 'URLs and --<field> <value> flags')
+    .option('--input <json|@file>', 'Input records as JSON, or @path to a '
+        +'JSON file')
+    .option('--limit-per-input <n>', 'discover_by_* only: max records per '
+        +'input, 1-1000 (default: 10). Every record is billed')
+    .option('--async', 'Print the snapshot ID instead of waiting')
+    .option('--format <fmt>', 'Result format: json, csv, ndjson, jsonl '
+        +'(default: json)')
+    .option('--timeout <seconds>', 'How long to wait (default: 600 or '
+        +'BRIGHTDATA_POLLING_TIMEOUT)'))
+    .allowUnknownOption()
+    .allowExcessArguments()
+    .action(guard(handle_run));
+
+const results_subcommand = add_output_opts(new Command('results')
+    .description('Get the records of a finished run')
+    .argument('<snapshot_id>', 'Snapshot ID from "pipelines run"')
+    .option('--format <fmt>', 'Result format: json, csv, ndjson, jsonl '
+        +'(default: json)'))
+    .action(guard(handle_results));
+
+const refresh_subcommand = add_output_opts(new Command('refresh')
+    .description('Reload the scraper list now instead of waiting for the '
+        +'daily refresh'))
+    .action(guard(handle_refresh));
+
+const pipelines_command = new Command('pipelines')
+    .description('Run any of the pre-built Scraper API scrapers and get '
+        +'structured data')
+    .argument('[type]')
+    .argument('[params...]')
+    .allowUnknownOption()
+    .usage('<command> [options]')
+    .addCommand(search_subcommand)
+    .addCommand(info_subcommand)
+    .addCommand(run_subcommand)
+    .addCommand(pipelines_status_command)
+    .addCommand(results_subcommand)
+    .addCommand(refresh_subcommand)
+    .action(handle_removed_type);
 
 add_examples(pipelines_command, [
     {
-        description: 'List every available pipeline type',
-        command: 'brightdata pipelines list',
+        description: 'Find a scraper',
+        command: 'brightdata pipelines search amazon reviews',
     },
     {
-        description: 'Scrape a single Amazon product page',
-        command: 'brightdata pipelines amazon_product '
-            +'https://www.amazon.com/dp/B08N5WRWNW --pretty',
+        description: 'See its input fields and an example',
+        command: 'brightdata pipelines info gd_le8e811kzy4ggddlq '
+            +'collect_by_url',
     },
     {
-        description: 'Pull a LinkedIn person profile by URL, save as CSV',
-        command: 'brightdata pipelines linkedin_person_profile '
-            +'https://www.linkedin.com/in/satyanadella --format csv '
-            +'-o profile.csv',
+        description: 'Run it on a URL',
+        command: 'brightdata pipelines run gd_le8e811kzy4ggddlq '
+            +'collect_by_url https://www.amazon.com/dp/B08N5WRWNW --pretty',
+    },
+    {
+        description: 'Pass input fields as flags',
+        command: 'brightdata pipelines run gd_lwdb4vjm1ehb499uxs '
+            +'collect_by_url --keyword laptop --url https://www.amazon.com',
+    },
+    {
+        description: 'Start a run without waiting, then fetch it',
+        command: 'brightdata pipelines run gd_le8e811kzy4ggddlq '
+            +'collect_by_url https://www.amazon.com/dp/B08N5WRWNW --async',
     },
 ]);
 
-export {pipelines_command, handle_pipelines};
+export {
+    pipelines_command,
+    handle_search,
+    handle_info,
+    handle_run,
+    handle_results,
+    handle_refresh,
+    handle_removed_type,
+    format_details,
+};

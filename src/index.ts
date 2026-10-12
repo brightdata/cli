@@ -41,7 +41,7 @@ const build_program = ()=>{
     program.addCommand(scrape_command);
     program.addCommand(search_command);
     program.addCommand(pipelines_command);
-    program.addCommand(status_command);
+    program.addCommand(status_command, {hidden: true});
     program.addCommand(zones_command);
     program.addCommand(config_command);
     program.addCommand(init_command);

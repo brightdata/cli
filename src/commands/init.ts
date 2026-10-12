@@ -230,8 +230,7 @@ const show_quick_start = (
         `  brightdata search "best proxy practices"${serp_flag}\n`
     );
     process.stderr.write(
-        '  brightdata pipelines linkedin_person_profile '
-        +'"https://www.linkedin.com/in/hello-agents"\n'
+        '  brightdata pipelines search "linkedin profiles"\n'
     );
 };
 
