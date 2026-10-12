@@ -29,7 +29,7 @@
 | `brightdata scraper run` | Run a Bright Data scraper on a URL and return the data |
 | `brightdata scraper heal` | Fix an existing scraper in place via AI self-healing (stops at an approval gate) |
 | `brightdata scraper approve` | Approve (or reject) a self-healing fix that is awaiting approval |
-| `brightdata pipelines` | Extract structured data from 40+ platforms (Amazon, LinkedIn, TikTok…) |
+| `brightdata pipelines` | Search and run any of thousands of pre-built scrapers (Amazon, LinkedIn, TikTok…) for structured data |
 | `brightdata browser` | Control a real browser via Bright Data's Scraping Browser — navigate, snapshot, click, type, and more |
 | `brightdata zones` | List and inspect your Bright Data proxy zones |
 | `brightdata budget` | View account balance and per-zone cost & bandwidth |
@@ -57,7 +57,6 @@
   - [scraper approve](#scraper-approve)
   - [pipelines](#pipelines)
   - [browser](#browser)
-  - [status](#status)
   - [zones](#zones)
   - [budget](#budget)
   - [skill](#skill)
@@ -68,7 +67,6 @@
 - [Environment Variables](#environment-variables)
 - [Output Modes](#output-modes)
 - [Pipe-Friendly Usage](#pipe-friendly-usage)
-- [Dataset Types Reference](#dataset-types-reference)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -115,8 +113,8 @@ brightdata scrape https://example.com
 # 3. Search Google
 brightdata search "web scraping best practices"
 
-# 4. Extract a LinkedIn profile
-brightdata pipelines linkedin_person_profile "https://linkedin.com/in/username"
+# 4. Find a scraper and get structured data
+brightdata pipelines search linkedin profiles
 
 # 5. Check your account balance
 brightdata budget
@@ -232,7 +230,7 @@ brightdata scrape https://amazon.com -f json --country us -o product.json
 # Pipe to a markdown viewer
 brightdata scrape https://docs.github.com | glow -
 
-# Async — returns a snapshot ID you can poll with `status`
+# Async — returns a response ID
 brightdata scrape https://example.com --async
 ```
 
@@ -607,49 +605,65 @@ brightdata scraper run c_mp3tuab31lswoxvpws https://example.com/product/1 --pret
 
 ### `pipelines`
 
-Extract structured data from 40+ platforms using Bright Data's Web Scraper API. Triggers an async collection job, polls until ready, and returns results.
+Search and run any of thousands of pre-built Scraper API scrapers and get structured data back. The scraper list comes from Bright Data's docs and is cached for 24 hours.
 
 ```bash
-brightdata pipelines <type> [params...] [options]
+brightdata pipelines search <query...>               # find a scraper
+brightdata pipelines info <dataset_id> [method]      # its methods, or one method's input fields
+brightdata pipelines run <dataset_id> <method> [urls...] [--<field> <value>...]
+brightdata pipelines status <snapshot_id> [--wait]   # progress of a run
+brightdata pipelines results <snapshot_id>           # records of a finished run
+brightdata pipelines refresh                         # reload the scraper list now
 ```
 
-| Flag | Description |
+`run` takes the scraper's input fields as flags, one `--<field> <value>` per field listed by `info`. Values are converted by field type (number, `true`/`false`, comma-separated arrays). Each URL argument becomes one input record. Unknown or missing required fields stop the command before anything is triggered or billed. Use `--input` for different values per record or nested data.
+
+| Flag (`run`) | Description |
 |---|---|
+| `--<field> <value>` | An input field of the method (see `info`) |
+| `--input <json\|@file>` | Input records as JSON, or `@path` to a JSON file |
+| `--limit-per-input <n>` | `discover_by_*` only: max records per input (default: `10`). Every record is billed |
+| `--async` | Print the snapshot ID instead of waiting |
 | `--format <fmt>` | `json` · `csv` · `ndjson` · `jsonl` (default: `json`) |
-| `--timeout <seconds>` | Polling timeout (default: `600`) |
+| `--timeout <seconds>` | How long to wait (default: `600`) |
 | `-o, --output <path>` | Write output to file |
 | `--json` / `--pretty` | JSON output (raw / indented) |
 | `-k, --api-key <key>` | Override API key |
 
-```bash
-# List all available dataset types
-brightdata pipelines list
-```
-
 **Examples**
 
 ```bash
-# LinkedIn profile
-brightdata pipelines linkedin_person_profile "https://linkedin.com/in/username"
+# 1. Find a scraper
+brightdata pipelines search amazon reviews
 
-# Amazon product → CSV
-brightdata pipelines amazon_product "https://amazon.com/dp/B09V3KXJPB" \
-  --format csv -o product.csv
+# 2. See its input fields, an example and a ready-to-run command
+brightdata pipelines info gd_le8e811kzy4ggddlq collect_by_url
 
-# Instagram profile
-brightdata pipelines instagram_profiles "https://instagram.com/username"
+# 3. Run it on a URL
+brightdata pipelines run gd_le8e811kzy4ggddlq collect_by_url \
+  "https://www.amazon.com/dp/B09V3KXJPB" --max_reviews 20 --pretty
 
-# Amazon search by keyword
-brightdata pipelines amazon_product_search "laptop" "https://amazon.com"
+# Input fields as flags
+brightdata pipelines run gd_lwdb4vjm1ehb499uxs collect_by_url \
+  --keyword laptop --url https://www.amazon.com
 
-# Google Maps reviews
-brightdata pipelines google_maps_reviews "https://maps.google.com/..." 7
+# Discover method, capped at 5 records per input
+brightdata pipelines run gd_l7q7dkf244hwjntr0 discover_by_keyword \
+  --keyword "usb c hub" --limit-per-input 5
 
-# YouTube comments (top 50)
-brightdata pipelines youtube_comments "https://youtube.com/watch?v=..." 50
+# Several records from a file → CSV
+brightdata pipelines run gd_l7q7dkf244hwjntr0 collect_by_url \
+  --input @urls.json --format csv -o products.csv
+
+# Start without waiting, then check and fetch
+brightdata pipelines run gd_le8e811kzy4ggddlq collect_by_url "<url>" --async
+brightdata pipelines status s_abc123xyz --wait
+brightdata pipelines results s_abc123xyz --pretty
 ```
 
-See [Dataset Types Reference](#dataset-types-reference) for the full list.
+Records with an `error` field explain inputs that failed, such as a URL of the wrong type.
+
+> **Changed in 0.4.0:** the 43 fixed pipeline types (`pipelines amazon_product <url>`, `pipelines list`) and the top-level `brightdata status` command were removed. Old commands print the replacement. To migrate, find the scraper with `brightdata pipelines search <site or data type>` and run it with `pipelines run`.
 
 ---
 
@@ -980,35 +994,6 @@ brightdata browser close --all
 
 ---
 
-### `status`
-
-Check the status of an async snapshot job (returned by `--async` or `pipelines`).
-
-```bash
-brightdata status <job-id> [options]
-```
-
-| Flag | Description |
-|---|---|
-| `--wait` | Poll until the job completes |
-| `--timeout <seconds>` | Polling timeout (default: `600`) |
-| `-o, --output <path>` | Write output to file |
-| `--json` / `--pretty` | JSON output (raw / indented) |
-| `-k, --api-key <key>` | Override API key |
-
-```bash
-# Check current status
-brightdata status s_abc123xyz
-
-# Block until complete
-brightdata status s_abc123xyz --wait --pretty
-
-# Custom timeout (5 minutes)
-brightdata status s_abc123xyz --wait --timeout 300
-```
-
----
-
 ### `zones`
 
 List and inspect your Bright Data proxy zones.
@@ -1251,84 +1236,14 @@ brightdata scrape https://docs.github.com | glow -
 brightdata scrape https://example.com -f markdown > page.md
 
 # Amazon product data as CSV
-brightdata pipelines amazon_product "https://amazon.com/dp/xxx" --format csv > product.csv
+brightdata pipelines run gd_l7q7dkf244hwjntr0 collect_by_url \
+  "https://amazon.com/dp/xxx" --format csv > product.csv
 
 # Chain search → scrape
 brightdata search "top open source projects" --json \
   | jq -r '.organic[0].link' \
   | xargs brightdata scrape
 ```
-
----
-
-## Dataset Types Reference
-
-```bash
-brightdata pipelines list   # See all types in your terminal
-```
-
-### E-Commerce
-
-| Type | Platform |
-|---|---|
-| `amazon_product` | Amazon product page |
-| `amazon_product_reviews` | Amazon reviews |
-| `amazon_product_search` | Amazon search results |
-| `walmart_product` | Walmart product page |
-| `walmart_seller` | Walmart seller profile |
-| `ebay_product` | eBay listing |
-| `bestbuy_products` | Best Buy |
-| `etsy_products` | Etsy |
-| `homedepot_products` | Home Depot |
-| `zara_products` | Zara |
-| `google_shopping` | Google Shopping |
-
-### Professional Networks
-
-| Type | Platform |
-|---|---|
-| `linkedin_person_profile` | LinkedIn person |
-| `linkedin_company_profile` | LinkedIn company |
-| `linkedin_job_listings` | LinkedIn jobs |
-| `linkedin_posts` | LinkedIn posts |
-| `linkedin_people_search` | LinkedIn people search |
-| `crunchbase_company` | Crunchbase |
-| `zoominfo_company_profile` | ZoomInfo |
-
-### Social Media
-
-| Type | Platform |
-|---|---|
-| `instagram_profiles` | Instagram profiles |
-| `instagram_posts` | Instagram posts |
-| `instagram_reels` | Instagram reels |
-| `instagram_comments` | Instagram comments |
-| `facebook_posts` | Facebook posts |
-| `facebook_marketplace_listings` | Facebook Marketplace |
-| `facebook_company_reviews` | Facebook reviews |
-| `facebook_events` | Facebook events |
-| `tiktok_profiles` | TikTok profiles |
-| `tiktok_posts` | TikTok posts |
-| `tiktok_shop` | TikTok shop |
-| `tiktok_comments` | TikTok comments |
-| `x_posts` | X (Twitter) posts |
-| `youtube_profiles` | YouTube channels |
-| `youtube_videos` | YouTube videos |
-| `youtube_comments` | YouTube comments |
-| `reddit_posts` | Reddit posts |
-
-### Other
-
-| Type | Platform |
-|---|---|
-| `google_maps_reviews` | Google Maps reviews |
-| `google_play_store` | Google Play |
-| `apple_app_store` | Apple App Store |
-| `reuter_news` | Reuters news |
-| `github_repository_file` | GitHub repository files |
-| `yahoo_finance_business` | Yahoo Finance |
-| `zillow_properties_listing` | Zillow |
-| `booking_hotel_listings` | Booking.com |
 
 ---
 
@@ -1356,7 +1271,7 @@ Wait a moment and retry. Use `--async` for large jobs to avoid timeouts.
 
 **Async job is too slow**
 ```bash
-brightdata pipelines amazon_product <url> --timeout 1200
+brightdata pipelines run <dataset_id> <method> <url> --timeout 1200
 # or
 export BRIGHTDATA_POLLING_TIMEOUT=1200
 ```
