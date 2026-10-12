@@ -1,4 +1,5 @@
 import fs from 'fs';
+import {isUtf8} from 'buffer';
 import {Command} from 'commander';
 import {post} from '../utils/client';
 import {ensure_authenticated} from '../utils/auth';
@@ -60,7 +61,7 @@ const handle_scrape = async(url: string, opts: Scrape_opts)=>{
             api_key,
             ENDPOINT,
             req,
-            {timing: opts.timing, raw_buffer: fmt == 'screenshot'}
+            {timing: opts.timing, raw_buffer: fmt != 'json' && !opts.async}
         );
         spinner.stop();
         if (opts.async)
@@ -83,7 +84,21 @@ const handle_scrape = async(url: string, opts: Scrape_opts)=>{
             print(json_res, print_opts);
             return;
         }
-        print(result as string, print_opts);
+        const body = result as Buffer;
+        // pdf, image, zip...: keep the bytes, a utf-8 decode corrupts them
+        const binary = !isUtf8(body) && !opts.json && !opts.pretty;
+        if (binary && opts.output)
+        {
+            fs.writeFileSync(opts.output, body);
+            info(`Output written to ${opts.output}`);
+            return;
+        }
+        if (binary && !process.stdout.isTTY)
+        {
+            process.stdout.write(body);
+            return;
+        }
+        print(new TextDecoder().decode(body), print_opts);
     } catch(e) {
         spinner.stop();
         console.error((e as Error).message);
