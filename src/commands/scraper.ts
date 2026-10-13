@@ -25,6 +25,7 @@ import type {
     Scraper_heal_opts,
     Scraper_approve_opts,
 } from '../types/scraper';
+import {USER_AGENT} from '../utils/user_agent';
 
 // Scraper-studio body-pattern hints. Kept here, not in client.ts, so
 // the DCA vocabulary doesn't leak into other commands. First match wins.
@@ -1011,7 +1012,7 @@ const fetch_raw = async(
         `${base_url}${endpoint}`;
     const headers: Record<string, string> = {
         'Authorization': `Bearer ${api_key}`,
-        'User-Agent': 'brightdata-cli',
+        'User-Agent': USER_AGENT,
         ...(init.headers as Record<string, string> ?? {}),
     };
     if (init.body !== undefined)

@@ -19,6 +19,7 @@ import {
     searchMultiselect,
 } from '../utils/skill-installer/prompts/search-multiselect'
 import {installSkillForAgent} from '../utils/skill-installer/installer'
+import {USER_AGENT} from '../utils/user_agent'
 
 type Last_selected_agents = {
     agents: string[];
@@ -239,10 +240,10 @@ const fetch_skill_files = async(
     skill: BrightDataSkill
 ): Promise<Record<string, string>>=>{
     const api_headers = {
-        'User-Agent': 'brightdata-cli',
+        'User-Agent': USER_AGENT,
         'Accept': 'application/vnd.github+json',
     }
-    const raw_headers = {'User-Agent': 'brightdata-cli'}
+    const raw_headers = {'User-Agent': USER_AGENT}
     const pending_paths = [skill.repoPath]
     const files: Record<string, string> = {}
 

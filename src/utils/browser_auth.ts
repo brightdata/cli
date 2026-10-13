@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import {execFile} from 'child_process';
 import {promisify} from 'util';
 import {SUCCESS_HTML, ERROR_HTML} from './auth_pages';
+import {USER_AGENT} from './user_agent';
 
 const BASE = process.env.BD_BASE || 'https://brightdata.com/users';
 const AUTHORIZE_URL = `${BASE}/auth/cli/authorize`;
@@ -197,7 +198,7 @@ const post_json = async<T extends Json_object>(
 ): Promise<{status: number; json: T|undefined}>=>{
     const res = await fetch(url, {
         method: 'POST',
-        headers: {'content-type': 'application/json', 'User-Agent': 'brightdata-cli'},
+        headers: {'content-type': 'application/json', 'User-Agent': USER_AGENT},
         body: JSON.stringify(body),
         redirect: 'manual',
     });
@@ -475,7 +476,7 @@ async function github_flow(opts: Browser_auth_opts): Promise<string> {
     const gh_headers = {
         Authorization: `Bearer ${gh_token}`,
         Accept: 'application/vnd.github+json',
-        'User-Agent': 'brightdata-cli',
+        'User-Agent': USER_AGENT,
     };
 
     // Step 2 — resolve GitHub user id and login

@@ -1,5 +1,6 @@
 import {resolve_api_key} from './config';
 import {get_api_key} from './credentials';
+import {USER_AGENT} from './user_agent';
 
 const API_BASE = 'https://api.brightdata.com';
 
@@ -16,7 +17,7 @@ const validate_key = async(api_key: string): Promise<boolean>=>{
         const res = await fetch(`${API_BASE}/zone`, {
             headers: {
                 'Authorization': `Bearer ${api_key}`,
-                'User-Agent': 'brightdata-cli',
+                'User-Agent': USER_AGENT,
             },
         });
         return res.status != 401 && res.status != 403;

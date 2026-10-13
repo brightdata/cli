@@ -1,4 +1,5 @@
 import {load as load_config} from './config';
+import {USER_AGENT} from './user_agent';
 
 const TRANSIENT_STATUSES = [429, 500, 502, 503, 504];
 const MAX_RETRIES = 3;
@@ -96,7 +97,7 @@ const request = async<T = unknown>(
     const headers: Record<string, string> = {
         'Authorization': `Bearer ${api_key}`,
         'Content-Type': 'application/json',
-        'User-Agent': 'brightdata-cli',
+        'User-Agent': USER_AGENT,
         ...opts.headers,
     };
     const fetch_opts: RequestInit = {

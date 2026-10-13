@@ -7,6 +7,7 @@ import type {
     Scraper_details,
     Input_record,
 } from '../types/pipelines';
+import {USER_AGENT} from './user_agent';
 
 const DOCS_URL = 'https://docs.brightdata.com';
 const DETAILS_ENDPOINT = '/datasets/v3/scrapers';
@@ -87,7 +88,7 @@ const notes_for = (d: ReturnType<typeof to_method>,
 
 const fetch_json = async(url: string): Promise<unknown>=>{
     const res = await fetch(url, {
-        headers: {'User-Agent': 'brightdata-cli'},
+        headers: {'User-Agent': USER_AGENT},
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok)
