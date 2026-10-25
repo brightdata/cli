@@ -12,10 +12,12 @@ import {afterAll, beforeAll, beforeEach, inject} from 'vitest';
 // codes, stdout/stderr and files written are exactly what a user (or a
 // script/agent driving the CLI) would observe.
 
-type Reply = {status?: number; body: unknown};
+// type is the content-type; a string body is sent as-is, anything else as
+// JSON.
+type Reply = {status?: number; type?: string; body: unknown};
 type Route = Reply|Reply[];
 type Call = {method: string; path: string; query: URLSearchParams;
-    body: string};
+    headers: Record<string, unknown>; body: string};
 type Cli_result = {code: number|null; stdout: string; stderr: string};
 
 const ROOT = resolve(__dirname, '../../..');
@@ -33,10 +35,10 @@ class Fake_api {
             const url = new URL(req.url ?? '/', 'http://x');
             const key = `${req.method} ${url.pathname}`;
             this.calls.push({method: req.method ?? '', path: url.pathname,
-                query: url.searchParams, body});
+                query: url.searchParams, headers: req.headers, body});
             const reply = this.next(key);
-            res.writeHead(reply.status ?? 200,
-                {'content-type': 'application/json'});
+            res.writeHead(reply.status ?? 200, {'content-type':
+                reply.type ?? 'application/json; charset=utf-8'});
             res.end(typeof reply.body == 'string' ? reply.body
                 : JSON.stringify(reply.body));
         });
