@@ -14,11 +14,13 @@ import {parse_timeout} from '../utils/polling';
 import {add_examples} from '../utils/help';
 import {create_scraper_catalog} from '../utils/scraper_catalog';
 import {
+    all_failed,
     scraper_headers,
     trigger,
     results,
     wait_for_results,
 } from '../utils/scraper_run';
+import type {Record_error} from '../utils/scraper_run';
 import {build_records, read_input} from '../utils/scraper_input';
 import {pipelines_status_command} from './status';
 import type {Webdata_format} from '../types/dataset';
@@ -75,7 +77,21 @@ const resolve_format = (raw: string|undefined): Webdata_format=>{
     return format;
 };
 
+// json/ndjson records carry {input: {url, ...}}; csv flattens it to input_url
+const describe_input = (r: Record_error): string=>{
+    const url = (r.input as {url?: unknown})?.url ?? r.input_url;
+    return typeof url == 'string' && url ? url
+        : JSON.stringify(r.input ?? null);
+};
+
 const print_data = (data: unknown, format: string, opts: Pipelines_opts)=>{
+    const failed = all_failed(data, format);
+    if (failed)
+    {
+        throw new Error(`All ${failed.length} input(s) failed, no records `
+            +'returned:\n'+failed.map(r=>`  ${describe_input(r)}: `
+            +r.error+(r.error_code ? ` [${r.error_code}]` : '')).join('\n'));
+    }
     const safe = format == 'csv' && typeof data == 'string'
         ? sanitize_serialized_csv(data) : data;
     print(safe, out_opts(opts));
