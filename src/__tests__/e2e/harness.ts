@@ -83,12 +83,14 @@ const make_home = (config: Record<string, unknown>,
     return home;
 };
 
-const run_cli = (entry: string, home: string,
-    args: string[]): Promise<Cli_result>=>new Promise(ok=>{
+// env entries override the defaults; set one to undefined to drop it.
+const run_cli = (entry: string, home: string, args: string[],
+    env: Record<string, string|undefined> = {}): Promise<Cli_result>=>
+    new Promise(ok=>{
     const child = spawn(process.execPath, [entry, ...args], {
         cwd: home,
         env: {PATH: process.env.PATH, HOME: home, NO_COLOR: '1',
-            BRIGHTDATA_API_KEY: 'test-key'},
+            BRIGHTDATA_API_KEY: 'test-key', ...env},
         stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '', stderr = '';
@@ -112,6 +114,8 @@ const setup_e2e = (opts: E2e_opts = {})=>{
         out: '',
         run: (...args: string[])=>run_cli(inject('cli_entry'), ctx.home,
             args),
+        run_env: (env: Record<string, string|undefined>, ...args: string[])=>
+            run_cli(inject('cli_entry'), ctx.home, args, env),
         written: ()=>JSON.parse(readFileSync(ctx.out, 'utf8')),
         out_exists: ()=>existsSync(ctx.out),
     };
