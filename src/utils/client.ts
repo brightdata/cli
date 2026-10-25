@@ -129,8 +129,9 @@ const request = async<T = unknown>(
                 if (opts.raw_buffer)
                     return Buffer.from(
                         await res.arrayBuffer()) as unknown as T;
-                const content_type = res.headers.get('content-type') ?? '';
-                if (content_type.includes('application/json'))
+                const mime = (res.headers.get('content-type') ?? '')
+                    .split(';')[0].trim().toLowerCase();
+                if (mime == 'application/json')
                     return await res.json() as T;
                 return await res.text() as unknown as T;
             }
