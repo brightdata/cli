@@ -65,6 +65,7 @@ import {
     parse_result_body,
     parse_sync_timeout,
     is_realtime_page_limit_error,
+    extract_result_error,
     classify_dataset,
     SCRAPER_BODY_HINTS,
     parse_max_retries,
@@ -873,11 +874,43 @@ describe('commands/scraper', ()=>{
                 .toBe(false);
         });
 
-        it('returns false for objects, strings, empty arrays', ()=>{
+        it('detects the output_format_ver 0 object shape', ()=>{
+            expect(is_realtime_page_limit_error({
+                input: {url: 'https://x.com'},
+                message: 'Request generated 70 pages and exceeded '
+                    +'realtime job limit of 51 pages',
+                error: true,
+                error_code: 'too_many_pages',
+            })).toBe(true);
+        });
+
+        it('returns false for other errors, strings, empty arrays', ()=>{
             expect(is_realtime_page_limit_error({error: 'x'})).toBe(false);
+            expect(is_realtime_page_limit_error({error: true,
+                message: 'Job reached timeout'})).toBe(false);
             expect(is_realtime_page_limit_error([])).toBe(false);
             expect(is_realtime_page_limit_error(null)).toBe(false);
             expect(is_realtime_page_limit_error('string')).toBe(false);
+        });
+    });
+
+    describe('extract_result_error', ()=>{
+        it('reads v0 and v1 error shapes', ()=>{
+            const want = {message: 'boom', code: 'dead_page'};
+            expect(extract_result_error({input: {}, message: 'boom',
+                error: true, error_code: 'dead_page'})).toEqual(want);
+            expect(extract_result_error([{input: {}, error: 'boom',
+                error_code: 'dead_page'}])).toEqual(want);
+        });
+
+        it('ignores data rows, partial errors and null errors', ()=>{
+            expect(extract_result_error([{title: 'ok'}])).toBeUndefined();
+            expect(extract_result_error([{title: 'ok'},
+                {error: 'x', error_code: 'dead_page'}])).toBeUndefined();
+            expect(extract_result_error([{error: null, error_code: null}]))
+                .toBeUndefined();
+            expect(extract_result_error({input: {}, lines: []}))
+                .toBeUndefined();
         });
     });
 

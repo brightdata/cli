@@ -1,3 +1,4 @@
+import {parse} from 'csv-parse/sync';
 import {get, post} from './client';
 import {poll_until} from './polling';
 import type {Poll_running_cb} from './polling';
@@ -74,6 +75,34 @@ const results = async(api_key: string, snapshot_id: string,
         data: format == 'json' ? strip_nulls(data) : data};
 };
 
+type Record_error = {input?: unknown; input_url?: string; error: string;
+    error_code?: string};
+
+const to_records = (data: unknown, format: string): unknown[]=>{
+    if (typeof data != 'string')
+        return Array.isArray(data) ? data : [];
+    try {
+        if (format == 'csv')
+            return parse(data, {columns: true, skip_empty_lines: true});
+        return data.split('\n').filter(l=>l.trim()).map(l=>JSON.parse(l));
+    } catch(_e) {
+        return [];
+    }
+};
+
+// With include_errors=true a failed input comes back as a record with an
+// `error` string. Returns the errors only when every record failed, so a
+// partial success is still treated as data.
+const all_failed = (data: unknown, format: string): Record_error[]|null=>{
+    const records = to_records(data, format) as Partial<Record_error>[];
+    if (!records.length || !records.every(r=>r && typeof r.error == 'string'
+        && r.error))
+    {
+        return null;
+    }
+    return records as Record_error[];
+};
+
 const wait_for_results = async(api_key: string, snapshot_id: string,
     opts: Wait_opts): Promise<Results_response>=>{
     const {timeout_seconds, interval_ms, on_running, ...call_opts} = opts;
@@ -89,7 +118,9 @@ const wait_for_results = async(api_key: string, snapshot_id: string,
     return res.result;
 };
 
+export type {Record_error};
 export {
+    all_failed,
     scraper_headers,
     strip_nulls,
     trigger,

@@ -71,6 +71,7 @@ const PENDING_SENTINEL = '__pending__';
 const BATCH_POLL_INTERVAL_MS = 10_000;
 const BATCH_TIMEOUT_DEFAULT = 3600;
 const REALTIME_LIMIT_MARKER = 'realtime job limit';
+const REALTIME_LIMIT_CODE = 'too_many_pages';
 
 const AI_TRIGGER_RETRY_BASE_MS = 30_000;
 const AI_TRIGGER_RETRY_MAX_MS = 240_000;
@@ -961,20 +962,39 @@ const parse_result_body = (body: string): unknown=>{
     }
 };
 
-const is_realtime_page_limit_error = (data: unknown): boolean=>{
-    if (!Array.isArray(data) || data.length == 0)
+type Result_error = {message: string; code?: string};
+
+type Error_line = {error?: unknown; error_code?: unknown; message?: unknown};
+
+// Realtime/batch error results come in two shapes, chosen per collector by
+// output_format_ver: v0 `{input, message, error: true, error_code}` and
+// v1 `[{input, error: '<message>', error_code}]`. A result counts as an
+// error only when every line is an error line.
+const is_error_line = (line: unknown): boolean=>{
+    if (!line || typeof line != 'object')
         return false;
-    for (const item of data)
-    {
-        if (!item || typeof item != 'object')
-            return false;
-        const err = (item as {error?: unknown}).error;
-        if (typeof err != 'string')
-            return false;
-        if (err.toLowerCase().includes(REALTIME_LIMIT_MARKER))
-            return true;
-    }
-    return false;
+    const {error, error_code} = line as Error_line;
+    if (error === true || typeof error_code == 'string' && !!error)
+        return true;
+    return typeof error == 'string'
+        && error.toLowerCase().includes(REALTIME_LIMIT_MARKER);
+};
+
+const extract_result_error = (data: unknown): Result_error|undefined=>{
+    const lines = Array.isArray(data) ? data : [data];
+    if (!lines.length || !lines.every(is_error_line))
+        return undefined;
+    const {error, error_code, message} = lines[0] as Error_line;
+    const text = typeof error == 'string' ? error
+        : typeof message == 'string' ? message : 'unknown error';
+    return {message: text,
+        code: typeof error_code == 'string' ? error_code : undefined};
+};
+
+const is_realtime_page_limit_error = (data: unknown): boolean=>{
+    const err = extract_result_error(data);
+    return !!err && (err.code == REALTIME_LIMIT_CODE
+        || err.message.toLowerCase().includes(REALTIME_LIMIT_MARKER));
 };
 
 const classify_dataset = (status: number, body: string): string=>{
@@ -1020,6 +1040,21 @@ const fetch_raw = async(
     const res = await fetch(url, {...init, headers});
     const body = await res.text();
     return {status: res.status, body};
+};
+
+const print_run_result = (data: unknown, collector_id: string,
+    opts: Scraper_run_opts)=>{
+    const err = extract_result_error(data);
+    if (err)
+    {
+        const code = err.code ? ` [${err.code}]` : '';
+        console.error(`Scraper failed (collector ${collector_id}): `
+            +`${err.message}${code}`);
+        process.exit(1);
+        return;
+    }
+    print(data, {json: opts.json, pretty: opts.pretty,
+        output: opts.output});
 };
 
 const run_batch = async(
@@ -1099,8 +1134,7 @@ const run_batch = async(
         });
         poll_spinner.stop();
         const data = parse_result_body(poll_result.result.body);
-        print(data, {json: opts.json, pretty: opts.pretty,
-            output: opts.output});
+        print_run_result(data, collector_id, opts);
     } catch(e) {
         poll_spinner.stop();
         const msg = (e as Error).message;
@@ -1186,8 +1220,7 @@ const handle_run_scraper = async(
                 await run_batch(api_key, collector_id, [single_url], opts);
                 return;
             }
-            print(data, {json: opts.json, pretty: opts.pretty,
-                output: opts.output});
+            print_run_result(data, collector_id, opts);
             return;
         } catch(e) {
             spinner.stop();
@@ -1257,8 +1290,7 @@ const handle_run_scraper = async(
             await run_batch(api_key, collector_id, [single_url], opts);
             return;
         }
-        print(data, {json: opts.json, pretty: opts.pretty,
-            output: opts.output});
+        print_run_result(data, collector_id, opts);
     } catch(e) {
         poll_spinner.stop();
         const msg = (e as Error).message;
@@ -1482,6 +1514,7 @@ export {
     parse_result_body,
     parse_sync_timeout,
     is_realtime_page_limit_error,
+    extract_result_error,
     classify_dataset,
     SCRAPER_BODY_HINTS,
     parse_max_retries,
