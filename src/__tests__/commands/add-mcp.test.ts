@@ -55,7 +55,9 @@ describe('commands/add-mcp', ()=>{
     let original_cwd = '';
     let stdin_tty: PropertyDescriptor|undefined;
     let stdout_tty: PropertyDescriptor|undefined;
-    let original_api_key_env: string|undefined;
+    const key_env_vars = ['BRIGHTDATA_API_KEY', 'BRIGHTDATA_API_TOKEN',
+        'API_TOKEN'];
+    let original_key_env: Record<string, string|undefined> = {};
 
     beforeEach(()=>{
         vi.clearAllMocks();
@@ -72,10 +74,15 @@ describe('commands/add-mcp', ()=>{
         process.chdir(project_dir);
         process.env['CODEX_HOME'] = codex_home;
         // Isolate from a real key in the environment: add-mcp now resolves the
-        // key via flag -> env -> stored credentials, so env must be cleared for
-        // the mocked credential to take effect.
-        original_api_key_env = process.env['BRIGHTDATA_API_KEY'];
-        delete process.env['BRIGHTDATA_API_KEY'];
+        // key via flag -> env -> stored credentials, so every env var that
+        // resolve_api_key reads (the documented BRIGHTDATA_API_KEY plus the
+        // BRIGHTDATA_API_TOKEN / API_TOKEN fallbacks) must be cleared for the
+        // mocked credential to take effect.
+        original_key_env = {};
+        for (const name of key_env_vars) {
+            original_key_env[name] = process.env[name];
+            delete process.env[name];
+        }
         vi.spyOn(os, 'homedir').mockReturnValue(home_dir);
         Object.defineProperty(process.stdin, 'isTTY', {
             value: true,
@@ -100,10 +107,12 @@ describe('commands/add-mcp', ()=>{
         if (stdout_tty)
             Object.defineProperty(process.stdout, 'isTTY', stdout_tty);
         delete process.env['CODEX_HOME'];
-        if (original_api_key_env === undefined)
-            delete process.env['BRIGHTDATA_API_KEY'];
-        else
-            process.env['BRIGHTDATA_API_KEY'] = original_api_key_env;
+        for (const name of key_env_vars) {
+            if (original_key_env[name] === undefined)
+                delete process.env[name];
+            else
+                process.env[name] = original_key_env[name];
+        }
         vi.restoreAllMocks();
         if (tmp_dir)
             fs.rmSync(tmp_dir, {recursive: true, force: true});
