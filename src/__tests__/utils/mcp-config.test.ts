@@ -160,7 +160,7 @@ describe('utils/mcp-config', ()=>{
         write_claude_code_mcp('api_key', 'project');
 
         expect(write_file_sync).toHaveBeenCalledWith(
-            path.join(project_dir, '.claude', 'settings.json'),
+            path.join(project_dir, '.mcp.json'),
             expect.any(String),
             {mode: 0o600}
         );
@@ -194,21 +194,90 @@ describe('utils/mcp-config', ()=>{
         );
     });
 
-    it('writes Codex config to CODEX_HOME when it is set', ()=>{
-        const codex_home = path.join(tmp_dir, 'codex-home');
-        const write_file_sync = vi.spyOn(fs, 'writeFileSync')
-            .mockImplementation(()=>undefined);
-        vi.spyOn(fs, 'existsSync').mockReturnValue(false);
-        vi.spyOn(fs, 'mkdirSync').mockImplementation(()=>undefined);
-        vi.spyOn(fs, 'chmodSync').mockImplementation(()=>undefined);
-        process.env['CODEX_HOME'] = codex_home;
+    describe('Codex config.toml', ()=>{
+        const codex_block = (api_key: string)=>[
+            '[mcp_servers.bright-data]',
+            'command = "npx"',
+            'args = ["@brightdata/mcp"]',
+            '',
+            '[mcp_servers.bright-data.env]',
+            'API_TOKEN = "'+api_key+'"',
+            '',
+        ].join('\n');
+        const codex_toml = ()=>path.join(tmp_dir, 'config.toml');
+        const read_toml = ()=>fs.readFileSync(codex_toml(), 'utf8');
 
-        write_codex_mcp('api_key');
+        beforeEach(()=>{
+            process.env['CODEX_HOME'] = tmp_dir;
+        });
 
-        expect(write_file_sync).toHaveBeenCalledWith(
-            path.join(codex_home, 'mcp.json'),
-            expect.any(String),
-            {mode: 0o600}
-        );
+        it('creates config.toml in CODEX_HOME', ()=>{
+            write_codex_mcp('api_key');
+
+            expect(read_toml()).toBe(codex_block('api_key'));
+            expect(fs.statSync(codex_toml()).mode & 0o777).toBe(0o600);
+        });
+
+        it('defaults to ~/.codex when CODEX_HOME is not set', ()=>{
+            delete process.env['CODEX_HOME'];
+            vi.spyOn(os, 'homedir').mockReturnValue(tmp_dir);
+
+            write_codex_mcp('api_key');
+
+            expect(fs.readFileSync(path.join(tmp_dir, '.codex',
+                'config.toml'), 'utf8')).toBe(codex_block('api_key'));
+        });
+
+        it('keeps other config and comments unchanged', ()=>{
+            const existing = [
+                '# my settings',
+                'model = "o3"',
+                '',
+                '[mcp_servers.other]',
+                'command = "other" # inline comment',
+            ].join('\n');
+            fs.writeFileSync(codex_toml(), existing+'\n');
+
+            write_codex_mcp('api_key');
+
+            expect(read_toml()).toBe(existing+'\n\n'+codex_block('api_key'));
+        });
+
+        it('replaces an existing bright-data server and its sub-tables', ()=>{
+            fs.writeFileSync(codex_toml(), [
+                'model = "o3"',
+                '',
+                '[mcp_servers."bright-data"]',
+                'command = "old"',
+                '[mcp_servers.bright-data.env]',
+                'API_TOKEN = "old_key"',
+                '',
+                '[mcp_servers.other]',
+                'command = "other"',
+                '',
+            ].join('\n'));
+
+            write_codex_mcp('new_key');
+
+            expect(read_toml()).toBe([
+                'model = "o3"',
+                '',
+                '[mcp_servers.other]',
+                'command = "other"',
+                '',
+                codex_block('new_key'),
+            ].join('\n'));
+        });
+
+        it('refuses to edit bright-data defined with dotted keys', ()=>{
+            const existing = '[mcp_servers]\nbright-data.command = "npx"\n';
+            fs.writeFileSync(codex_toml(), existing);
+
+            expect(()=>write_codex_mcp('api_key')).toThrow(
+                'defines bright-data in a form the CLI cannot update');
+            expect(()=>write_codex_mcp('api_key')).not.toThrow(
+                Invalid_mcp_config_error);
+            expect(read_toml()).toBe(existing);
+        });
     });
 });

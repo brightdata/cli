@@ -297,6 +297,11 @@ const run_add_mcp = async(
                 green('✓ Added Bright Data MCP to '
                     +mcp_agent_labels[agent]+'\n')
             );
+            if (agent == 'claude-code' && scope == 'project')
+            {
+                warn('.mcp.json contains your API key. Add it to '
+                    +'.gitignore if you commit this project.');
+            }
         } catch(error) {
             const reason = format_error(error);
             failures.push({agent, reason});

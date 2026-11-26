@@ -1098,11 +1098,11 @@ brightdata add mcp --agent codex --global
 
 | Agent | Global path | Project path |
 |---|---|---|
-| Claude Code | `~/.claude.json` | `.claude/settings.json` |
+| Claude Code | `~/.claude.json` | `.mcp.json` |
 | Cursor | `~/.cursor/mcp.json` | `.cursor/mcp.json` |
-| Codex | `$CODEX_HOME/mcp.json` or `~/.codex/mcp.json` | Not supported |
+| Codex | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` | Not supported |
 
-The command writes the MCP server under `mcpServers["bright-data"]`:
+For Claude Code and Cursor, the command writes the MCP server under `mcpServers["bright-data"]`:
 
 ```json
 {
@@ -1118,8 +1118,20 @@ The command writes the MCP server under `mcpServers["bright-data"]`:
 }
 ```
 
+For Codex, it writes the `[mcp_servers.bright-data]` table to `config.toml`:
+
+```toml
+[mcp_servers.bright-data]
+command = "npx"
+args = ["@brightdata/mcp"]
+
+[mcp_servers.bright-data.env]
+API_TOKEN = "<stored-api-key>"
+```
+
 Behavior notes:
-- Existing config is preserved; only `mcpServers["bright-data"]` is added or replaced.
+- Existing config is preserved; only the `bright-data` server is added or replaced. Other content in `config.toml`, comments included, stays as is.
+- The project `.mcp.json` contains your API key. Add it to `.gitignore` if you commit the project.
 - If the target config contains invalid JSON, the CLI warns and offers to overwrite it in interactive mode.
 - In non-interactive mode, pass both `--agent` and the appropriate scope flag to skip prompts.
 

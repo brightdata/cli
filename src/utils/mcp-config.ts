@@ -54,6 +54,14 @@ const load_json_object = (
     }
 };
 
+const write_private_file = (file_path: string, content: string)=>{
+    const dir = path.dirname(file_path);
+    if (!fs.existsSync(dir))
+        fs.mkdirSync(dir, {recursive: true});
+    fs.writeFileSync(file_path, content, {mode: 0o600});
+    fs.chmodSync(file_path, 0o600);
+};
+
 const upsert_mcp_config = (
     file_path: string,
     api_key: string,
@@ -70,15 +78,43 @@ const upsert_mcp_config = (
             'bright-data': get_bright_data_mcp(api_key),
         },
     };
-    const dir = path.dirname(file_path);
+    write_private_file(file_path, JSON.stringify(next, null, 4)+'\n');
+};
 
-    if (!fs.existsSync(dir))
-        fs.mkdirSync(dir, {recursive: true});
+const toml_header_re = /^\s*\[\[?[\w\s".'-]+\]\]?\s*(#.*)?$/;
+const codex_server_header_re =
+    /^\s*\[\s*mcp_servers\s*\.\s*"?bright-data"?\s*(\.[^\]]*)?\]/;
+const codex_server_key_re =
+    /^\s*(mcp_servers\s*\.\s*)?"?bright-data"?\s*[.=]/m;
 
-    fs.writeFileSync(file_path, JSON.stringify(next, null, 4)+'\n', {
-        mode: 0o600,
-    });
-    fs.chmodSync(file_path, 0o600);
+const remove_codex_server = (toml: string)=>{
+    let in_server = false;
+    return toml.split('\n').filter(line=>{
+        if (toml_header_re.test(line))
+            in_server = codex_server_header_re.test(line);
+        return !in_server;
+    }).join('\n');
+};
+
+const upsert_codex_toml = (file_path: string, api_key: string)=>{
+    const current = fs.existsSync(file_path)
+        ? fs.readFileSync(file_path, 'utf8') : '';
+    const rest = remove_codex_server(current).trimEnd();
+    if (codex_server_key_re.test(rest))
+    {
+        throw new Error(file_path+' defines bright-data in a form the CLI '
+            +'cannot update. Remove it and run again.');
+    }
+    const entry = get_bright_data_mcp(api_key);
+    const block = [
+        '[mcp_servers.bright-data]',
+        'command = '+JSON.stringify(entry.command),
+        'args = '+JSON.stringify(entry.args),
+        '',
+        '[mcp_servers.bright-data.env]',
+        'API_TOKEN = '+JSON.stringify(entry.env.API_TOKEN),
+    ].join('\n');
+    write_private_file(file_path, (rest ? rest+'\n\n' : '')+block+'\n');
 };
 
 const write_claude_code_mcp = (
@@ -87,7 +123,7 @@ const write_claude_code_mcp = (
     opts: Mcp_write_opts = {}
 )=>{
     const file_path = scope == 'project'
-        ? path.join(process.cwd(), '.claude', 'settings.json')
+        ? path.join(process.cwd(), '.mcp.json')
         : path.join(os.homedir(), '.claude.json');
     upsert_mcp_config(file_path, api_key, opts);
 };
@@ -103,13 +139,10 @@ const write_cursor_mcp = (
     upsert_mcp_config(file_path, api_key, opts);
 };
 
-const write_codex_mcp = (
-    api_key: string,
-    opts: Mcp_write_opts = {}
-)=>{
+const write_codex_mcp = (api_key: string)=>{
     const codex_home = process.env['CODEX_HOME']?.trim()
         || path.join(os.homedir(), '.codex');
-    upsert_mcp_config(path.join(codex_home, 'mcp.json'), api_key, opts);
+    upsert_codex_toml(path.join(codex_home, 'config.toml'), api_key);
 };
 
 export {

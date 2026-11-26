@@ -115,7 +115,9 @@ describe('commands/add-mcp', ()=>{
         expect(mocks.checkbox).toHaveBeenCalledOnce();
         expect(mocks.select).toHaveBeenCalledOnce();
         expect(mocks.confirm).not.toHaveBeenCalled();
-        expect(read_json(path.join(project_dir, '.claude', 'settings.json')))
+        expect(mocks.warn).toHaveBeenCalledWith(
+            expect.stringContaining('.mcp.json contains your API key'));
+        expect(read_json(path.join(project_dir, '.mcp.json')))
             .toEqual({
                 mcpServers: {
                     'bright-data': get_expected_entry('test_api_key'),
@@ -127,12 +129,8 @@ describe('commands/add-mcp', ()=>{
                     'bright-data': get_expected_entry('test_api_key'),
                 },
             });
-        expect(read_json(path.join(codex_home, 'mcp.json')))
-            .toEqual({
-                mcpServers: {
-                    'bright-data': get_expected_entry('test_api_key'),
-                },
-            });
+        expect(fs.readFileSync(path.join(codex_home, 'config.toml'), 'utf8'))
+            .toContain('[mcp_servers.bright-data]\ncommand = "npx"\n');
         expect(fs.existsSync(path.join(home_dir, '.claude.json'))).toBe(false);
         expect(fs.existsSync(path.join(home_dir, '.cursor', 'mcp.json')))
             .toBe(false);
